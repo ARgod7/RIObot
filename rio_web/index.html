@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RIO</title>
+  <link rel="stylesheet" href="/static/main.css">
+</head>
+<body>
+  <main class="page">
+
+    <section class="face-card">
+      <div class="face-circle">
+        <div class="face-inner">
+          <img id="eyesImg"  src="/assets/animatedEyes/neutralEyesGIF.gif" alt="Eyes">
+          <img id="mouthImg" src="/assets/animatedNoSpeeches/neutral_notSpeakGIF.gif" alt="Mouth">
+        </div>
+      </div>
+      <div id="emotionState">Warm and receptive</div>
+    </section>
+
+    <section class="response-card">
+      <div id="rioResponse">Hello. I am here with you.</div>
+      <!-- live transcript of what user said -->
+      <div id="transcript" class="transcript-line"></div>
+    </section>
+
+    <!-- audio plays here in browser, hidden controls -->
+    <audio id="audioPlayer" style="display:none"></audio>
+
+    <section class="input-row">
+      <!-- green dot = WebSocket connected, red = disconnected -->
+      <span id="micDot" class="mic-dot off" title="Connecting..."></span>
+      <input type="text" id="userInput" placeholder="Tell me how you're feeling..." />
+      <button id="sendBtn">Send</button>
+      <button id="micBtn" title="Voice input">🎤</button>
+    </section>
+
+    <div class="footer">
+      Open <a href="/details">/details</a> for live perception debug.
+    </div>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/mic_bridge.js"></script>
+</body>
+</html>

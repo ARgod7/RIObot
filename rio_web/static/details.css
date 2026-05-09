@@ -1,0 +1,108 @@
+:root {
+    --bg: #ffffff;
+    --text: #111827;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --accent: #2563eb;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 24px;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+header a {
+    text-decoration: none;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+h1 {
+    font-size: 1.6rem;
+    margin: 0 0 16px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.card {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    background: #fafafa;
+}
+
+.card h2 {
+    margin: 0 0 12px;
+    font-size: 1.05rem;
+}
+
+.video-frame {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: #000;
+}
+
+.row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.95rem;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--border);
+}
+
+.row:last-child {
+    border-bottom: none;
+}
+
+.label {
+    color: var(--muted);
+}
+
+.input-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+}
+
+input {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+}
+
+button {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    background: var(--accent);
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.mono {
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 0.9rem;
+    white-space: pre-wrap;
+}
+

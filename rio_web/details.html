@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RIO Debug</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    header h1 { font-size: 20px; font-weight: 500; color: #fff; }
+    header a {
+      font-size: 13px;
+      color: #888;
+      text-decoration: none;
+    }
+    header a:hover { color: #fff; }
+
+    .ws-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 20px;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #444;
+      transition: background 0.3s;
+    }
+    .dot.on  { background: #4ade80; }
+    .dot.off { background: #f87171; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: #1a1a1a;
+      border: 1px solid #2a2a2a;
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .card h2 {
+      font-size: 13px;
+      font-weight: 500;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 16px;
+    }
+
+    /* Emotion bars */
+    .ebar {
+      display: grid;
+      grid-template-columns: 72px 1fr 40px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .elabel { font-size: 13px; color: #aaa; }
+    .etrack {
+      height: 6px;
+      background: #2a2a2a;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .efill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease;
+    }
+    .efill.joy      { background: #facc15; }
+    .efill.sadness  { background: #60a5fa; }
+    .efill.fear     { background: #a78bfa; }
+    .efill.anger    { background: #f87171; }
+    .efill.disgust  { background: #4ade80; }
+    .efill.surprise { background: #fb923c; }
+    .eval { font-size: 12px; color: #666; text-align: right; }
+
+    /* Source label */
+    .source-label {
+      font-size: 11px;
+      color: #555;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .divider { border: none; border-top: 1px solid #222; margin: 14px 0; }
+
+    /* Transcript / response */
+    .bubble {
+      background: #222;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: #ddd;
+      min-height: 48px;
+      margin-bottom: 10px;
+    }
+    .bubble .label {
+      font-size: 11px;
+      color: #555;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    /* Test input */
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .input-row input {
+      flex: 1;
+      background: #222;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: #fff;
+      font-size: 14px;
+    }
+    .input-row input:focus { outline: none; border-color: #555; }
+    .input-row button {
+      background: #333;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      color: #fff;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .input-row button:hover { background: #444; }
+
+    /* Confidence badge */
+    .conf {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: #2a2a2a;
+      color: #888;
+      margin-left: 8px;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 6px 10px;
+      font-size: 13px;
+      color: #cfcfcf;
+    }
+    .k { color: #888; }
+    .json-box {
+      margin-top: 10px;
+      background: #151515;
+      border: 1px solid #242424;
+      border-radius: 8px;
+      padding: 10px;
+      color: #a6e3a1;
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 180px;
+      overflow: auto;
+    }
+    .history {
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid #242424;
+      border-radius: 8px;
+      padding: 8px;
+      background: #151515;
+    }
+    .history-item {
+      border-bottom: 1px solid #242424;
+      padding: 8px 6px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-role {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 3px;
+    }
+    .history-ts {
+      color: #666;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>RIO — live debug</h1>
+  <a href="/">← back</a>
+</header>
+
+<div class="ws-status">
+  <span class="dot" id="wsDot"></span>
+  <span id="wsLabel">connecting to ws://localhost:8765...</span>
+</div>
+
+<div class="grid">
+
+  <!-- FACE emotion -->
+  <div class="card">
+    <h2>Face <span class="conf" id="faceConf">conf: —</span></h2>
+    <div id="faceBars"></div>
+  </div>
+
+  <!-- POSTURE emotion -->
+  <div class="card">
+    <h2>Posture <span class="conf" id="postureConf">conf: —</span></h2>
+    <div id="postureBars"></div>
+  </div>
+
+  <!-- VOICE emotion -->
+  <div class="card">
+    <h2>Voice <span class="conf" id="voiceConf">conf: —</span></h2>
+    <div id="voiceBars"></div>
+  </div>
+
+  <!-- FUSED emotion -->
+  <div class="card">
+    <h2>Fused (what RIO sees) <span class="conf" id="fusedConf">conf: —</span></h2>
+    <div id="fusedBars"></div>
+    <hr class="divider">
+    <div class="source-label">dominant</div>
+    <div id="dominant" style="font-size:18px;font-weight:500;color:#fff;">—</div>
+  </div>
+
+  <!-- RIO engine emotion -->
+  <div class="card">
+    <h2>RIO Engine Emotion Vector</h2>
+    <div id="rioBars"></div>
+    <hr class="divider">
+    <div class="kv">
+      <div class="k">dominant</div><div id="rioDominant">—</div>
+      <div class="k">trust</div><div id="rioTrust">—</div>
+      <div class="k">likeness</div><div id="rioLikeness">—</div>
+      <div class="k">stagnation</div><div id="rioStagnation">—</div>
+      <div class="k">intervention</div><div id="interventionIntent">—</div>
+      <div class="k">feedback</div><div id="feedbackNote">—</div>
+    </div>
+  </div>
+
+  <!-- Perception diagnostics -->
+  <div class="card">
+    <h2>Perception Diagnostics</h2>
+    <div class="kv">
+      <div class="k">camera age</div><div id="cameraAge">—</div>
+      <div class="k">camera stale</div><div id="cameraStale">—</div>
+      <div class="k">voice available</div><div id="voiceAvail">—</div>
+      <div class="k">voice listening</div><div id="voiceListening">—</div>
+      <div class="k">loop count</div><div id="loopCount">—</div>
+      <div class="k">loop running</div><div id="loopRunning">—</div>
+      <div class="k">stimulus label</div><div id="stimulusLabel">—</div>
+      <div class="k">stimulus trust</div><div id="stimulusTrust">—</div>
+      <div class="k">stimulus likeness</div><div id="stimulusLikeness">—</div>
+    </div>
+    <div class="json-box" id="rawPayload">waiting for payload...</div>
+  </div>
+
+  <!-- Conversation -->
+  <div class="card" style="grid-column: span 2">
+    <h2>Conversation</h2>
+    <div class="bubble">
+      <div class="label">User said</div>
+      <div id="userText">waiting...</div>
+    </div>
+    <div class="bubble">
+      <div class="label">RIO responded</div>
+      <div id="rioText">waiting...</div>
+    </div>
+    <div class="bubble" style="font-size:13px;color:#666;">
+      <div class="label">Expression intent</div>
+      <div id="expressionIntent">—</div>
+    </div>
+
+    <hr class="divider">
+    <div class="source-label">chat history (latest 30)</div>
+    <div class="history" id="chatHistory"></div>
+
+    <hr class="divider">
+    <div class="source-label">send test message</div>
+    <div class="input-row">
+      <input type="text" id="testInput" placeholder="Type anything...">
+      <button id="testBtn">Send</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const WS_URL = "ws://localhost:8765";
+const EMOTIONS = ["joy","sadness","fear","anger","disgust","surprise"];
+
+let ws = null;
+const chatHistory = [];
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    document.getElementById("wsDot").className = "dot on";
+    document.getElementById("wsLabel").textContent = "connected — ws://localhost:8765";
+  };
+
+  ws.onclose = () => {
+    document.getElementById("wsDot").className = "dot off";
+    document.getElementById("wsLabel").textContent = "disconnected — retrying...";
+    setTimeout(connect, 3000);
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      handleMessage(msg);
+    } catch(_) {}
+  };
+}
+
+function handleMessage(msg) {
+  if (msg.type === "emotion_update") {
+    const d = msg.emotions || {};
+    renderBars("faceBars",    d.face,    "faceConf");
+    renderBars("postureBars", d.posture, "postureConf");
+    renderBars("voiceBars",   d.voice,   "voiceConf");
+    renderBars("fusedBars",   d.fused,   "fusedConf");
+    updateDiagnostics(d);
+    if (d.fused) {
+      const dom = Object.entries(d.fused)
+        .filter(([k]) => EMOTIONS.includes(k))
+        .sort((a,b) => b[1]-a[1])[0];
+      document.getElementById("dominant").textContent =
+        dom ? `${dom[0].toUpperCase()} (${dom[1].toFixed(2)})` : "—";
+    }
+  }
+
+  if (msg.type === "transcript_ack") {
+    const text = msg.text || "—";
+    document.getElementById("userText").textContent = text;
+    pushHistory("user", text);
+  }
+
+  if (msg.type === "rio_response") {
+    const text = msg.text || "—";
+    document.getElementById("rioText").textContent = text;
+    document.getElementById("expressionIntent").textContent = msg.expression || "—";
+    pushHistory("rio", text);
+    updateRioState(msg);
+  }
+}
+
+function renderBars(containerId, data, confId) {
+  const el = document.getElementById(containerId);
+  if (!el || !data) return;
+
+  if (confId && data.confidence !== undefined) {
+    document.getElementById(confId).textContent = `conf: ${data.confidence.toFixed(2)}`;
+  }
+
+  el.innerHTML = EMOTIONS.map(k => {
+    const v = data[k] ?? 0;
+    const pct = Math.round(v * 100);
+    return `
+      <div class="ebar">
+        <span class="elabel">${k}</span>
+        <div class="etrack">
+          <div class="efill ${k}" style="width:${pct}%"></div>
+        </div>
+        <span class="eval">${v.toFixed(2)}</span>
+      </div>`;
+  }).join("");
+}
+
+function updateDiagnostics(d) {
+  const camera = d.camera || {};
+  const voiceStatus = d.voice_status || {};
+  const loop = d.loop || {};
+  const meta = d.stimulus_meta || {};
+
+  document.getElementById("cameraAge").textContent = camera.age_seconds ?? "—";
+  document.getElementById("cameraStale").textContent = camera.stale === undefined ? "—" : String(camera.stale);
+  document.getElementById("voiceAvail").textContent = voiceStatus.available === undefined ? "—" : String(voiceStatus.available);
+  document.getElementById("voiceListening").textContent = voiceStatus.listening === undefined ? "—" : String(voiceStatus.listening);
+  document.getElementById("loopCount").textContent = loop.loop_count ?? "—";
+  document.getElementById("loopRunning").textContent = loop.running === undefined ? "—" : String(loop.running);
+  document.getElementById("stimulusLabel").textContent = meta.label ?? "—";
+  document.getElementById("stimulusTrust").textContent = meta.trust ?? "—";
+  document.getElementById("stimulusLikeness").textContent = meta.likeness ?? "—";
+
+  document.getElementById("rawPayload").textContent = JSON.stringify(d, null, 2);
+}
+
+function updateRioState(msg) {
+  const rio = msg.rio_state || {};
+  const vec = rio.emotion_vector || {};
+  renderBars("rioBars", vec, null);
+
+  const dom = Object.entries(vec)
+    .filter(([k]) => EMOTIONS.includes(k))
+    .sort((a, b) => b[1] - a[1])[0];
+  document.getElementById("rioDominant").textContent = dom ? `${dom[0]} (${dom[1].toFixed(2)})` : "—";
+
+  document.getElementById("rioTrust").textContent = rio.trust ?? "—";
+  document.getElementById("rioLikeness").textContent = rio.likeness ?? "—";
+  document.getElementById("rioStagnation").textContent = rio.stagnation_counter ?? "—";
+
+  const intent = msg.intervention_intent;
+  document.getElementById("interventionIntent").textContent =
+    typeof intent === "string" ? intent : JSON.stringify(intent || {});
+
+  const fb = msg.pipeline_feedback || {};
+  document.getElementById("feedbackNote").textContent =
+    fb.note ? `${fb.note} | improved=${fb.improved} | delta=${fb.delta}` : "—";
+}
+
+function pushHistory(role, text) {
+  chatHistory.push({
+    role,
+    text: String(text || "").trim(),
+    ts: new Date().toLocaleTimeString(),
+  });
+  if (chatHistory.length > 30) chatHistory.shift();
+  renderHistory();
+}
+
+function renderHistory() {
+  const container = document.getElementById("chatHistory");
+  container.innerHTML = chatHistory.map((item) => `
+    <div class="history-item">
+      <div class="history-role">${item.role}<span class="history-ts">${item.ts}</span></div>
+      <div>${escapeHtml(item.text)}</div>
+    </div>
+  `).join("");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+// Test input sends via WebSocket
+document.getElementById("testBtn").addEventListener("click", () => {
+  const text = document.getElementById("testInput").value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "transcript", text }));
+  document.getElementById("userText").textContent = "You: " + text;
+  document.getElementById("testInput").value = "";
+});
+
+document.getElementById("testInput").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("testBtn").click();
+});
+
+connect();
+</script>
+</body>
+</html>

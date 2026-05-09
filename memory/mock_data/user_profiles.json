@@ -1,0 +1,23 @@
+{
+  "users": {
+    "default_user": {
+      "name": "User",
+      "trust_level": 0.5,
+      "likeness_score": 0.6,
+      "grief_triggers": [
+        "loss",
+        "memories",
+        "missing"
+      ],
+      "interventions_that_worked": {
+        "validation": 3,
+        "reframe": 1,
+        "deepening": 2,
+        "grounding": 4
+      },
+      "total_sessions": 1,
+      "last_session": "2026-05-01"
+    }
+  }
+}
+

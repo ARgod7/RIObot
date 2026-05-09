@@ -1,0 +1,12 @@
+{
+  "session_start": "2026-05-01T14:06:40.735481",
+  "exchanges": [
+    {
+      "timestamp": "2026-05-01T14:07:13.029417",
+      "user_input": "i am feeling sad",
+      "rio_response": "What do you see or hear around you right now?",
+      "emotion": "sadness"
+    }
+  ],
+  "last_emotion": "sadness"
+}
