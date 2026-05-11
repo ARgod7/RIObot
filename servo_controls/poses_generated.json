@@ -21,11 +21,11 @@
         "4": { "rsh": 172, "rsv": 0,  "hv": 25, "hh": 55, "lear": 30,  "rear": 148, "lsh": 0,  "lsv": 180, "le": 25, "re": 25, "base": 72 }
     },
     "disgust": {
-        "0": { "rsh": 160, "rsv": 10, "hv": 85, "hh": 55, "lear": 95,  "rear": 85, "lsh": 5,  "lsv": 172, "le": 90, "re": 90,  "base": 90 },
-        "1": { "rsh": 170, "rsv": 5,  "hv": 82, "hh": 45, "lear": 100, "rear": 80, "lsh": 0,  "lsv": 178, "le": 85, "re": 85,  "base": 87 },
-        "2": { "rsh": 178, "rsv": 0,  "hv": 78, "hh": 35, "lear": 108, "rear": 72, "lsh": 0,  "lsv": 180, "le": 75, "re": 110, "base": 83 },
-        "3": { "rsh": 180, "rsv": 0,  "hv": 72, "hh": 25, "lear": 118, "rear": 62, "lsh": 0,  "lsv": 180, "le": 60, "re": 125, "base": 78 },
-        "4": { "rsh": 180, "rsv": 0,  "hv": 30, "hh": 15, "lear": 130, "rear": 50, "lsh": 0,  "lsv": 180, "le": 40, "re": 140, "base": 72 }
+        "0": { "rsh": 160, "rsv": 10, "hv": 90, "hh": 55, "lear": 95,  "rear": 85, "lsh": 5,  "lsv": 172, "le": 90, "re": 90,  "base": 90 },
+        "1": { "rsh": 170, "rsv": 5,  "hv": 85, "hh": 45, "lear": 100, "rear": 80, "lsh": 0,  "lsv": 178, "le": 85, "re": 85,  "base": 80 },
+        "2": { "rsh": 178, "rsv": 0,  "hv": 80, "hh": 35, "lear": 108, "rear": 72, "lsh": 0,  "lsv": 180, "le": 75, "re": 110, "base": 70 },
+        "3": { "rsh": 180, "rsv": 0,  "hv": 75, "hh": 25, "lear": 118, "rear": 62, "lsh": 0,  "lsv": 180, "le": 60, "re": 125, "base": 60 },
+        "4": { "rsh": 180, "rsv": 0,  "hv": 70, "hh": 15, "lear": 130, "rear": 50, "lsh": 0,  "lsv": 180, "le": 40, "re": 140, "base": 50 }
     },
     "anger": {
         "0": { "rsh": 85,  "rsv": 40, "hv": 80, "hh": 90, "lear": 105, "rear": 75, "lsh": 95,  "lsv": 145, "le": 65, "re": 115, "base": 90  },
