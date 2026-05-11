@@ -6,7 +6,7 @@ const path = require('path');
 // --- Configuration ---
 const COMport = 5; 
 const BAUD_RATE = 9600;
-const POSES_FILE = path.join(__dirname, 'poses.json');
+const POSES_FILE = path.join(__dirname, 'poses_generated.json');
 
 // Setup Serial Port
 const port = new SerialPort({ path: `COM${COMport}`, baudRate: BAUD_RATE }, function (err) {
@@ -33,17 +33,21 @@ try {
 }
 
 // --- Servo Mapping ---
-// Maps pose.json servo names to the 8-servo array indices
-// Matches the order expected by the serial protocol
+// Maps pose.json servo names to the 11-slot array indices
+// Transmission layout (indices 0-10):
+// 0 hh, 1 rsv, 2 lsv, 3 rsh, 4 lsh, 5 re, 6 le, 7 base, 8 hv, 9 lear, 10 rear
 const servoMapping = {
-    'hh': 0,      // head horizontal
-    'rsv': 1,     // right shoulder vertical
-    'lsv': 2,     // left shoulder vertical
-    'rsh': 3,     // right shoulder horizontal
-    'lsh': 4,     // left shoulder horizontal
-    're': 5,      // right elbow
-    'le': 6,      // left elbow
-    'base': 7     // base
+    'hh': 0,
+    'rsv': 1,
+    'lsv': 2,
+    'rsh': 3,
+    'lsh': 4,
+    're': 5,
+    'le': 6,
+    'base': 7,
+    'hv': 8,
+    'lear': 9,
+    'rear': 10
 };
 
 // --- Helper: Print Available Emotions ---
@@ -58,10 +62,10 @@ function printAvailableEmotions() {
 
 // --- Helper: Convert Pose to Servo Array ---
 function poseToServoArray(poseData) {
-    // Create array of 8 servos, defaulting to 90 degrees
-    let servoArray = new Array(8).fill(90);
+    // Create array of 11 servos, defaulting to 90 degrees
+    let servoArray = new Array(11).fill(90);
 
-    // Map each servo from the pose data
+    // Map each servo from the pose data (if present)
     for (const [servoName, value] of Object.entries(poseData)) {
         if (servoMapping.hasOwnProperty(servoName)) {
             const index = servoMapping[servoName];
@@ -75,17 +79,11 @@ function poseToServoArray(poseData) {
 // --- Helper: Format and Send Data ---
 function sendPose(servoArray) {
     let sendData = "";
-    
+
+    // Expecting 11 values -> 22 characters total
     for (let i = 0; i < servoArray.length; i++) {
-        // Divide by 10 and floor
         let reducedValue = Math.floor(servoArray[i] / 10);
-        
-        // Pad to 2 digits (e.g. 5 -> "05")
-        if (reducedValue >= 10) {
-            sendData += String(reducedValue);
-        } else {
-            sendData += String(0) + String(reducedValue);
-        }
+        sendData += reducedValue >= 10 ? String(reducedValue) : `0${reducedValue}`;
     }
 
     // Send over Serial
