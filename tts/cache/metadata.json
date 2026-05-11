@@ -1,626 +1,80 @@
 {
-  "d9cddcb3adc8cd1e11cae4c26d9576db": {
-    "text": "Hello world",
+  "7f74fc67d96da65dec6b0ac2a6b58d63": {
+    "text": "I'm here to listen, and it sounds like you're reaching out for support again, just like you did earl",
     "lang": "en",
-    "created": "2026-05-01T13:38:24.078305",
-    "file": "tts\\cache\\d9cddcb3adc8cd1e11cae4c26d9576db.mp3"
+    "created": "2026-05-11T23:23:28.871480",
+    "file": "tts\\cache\\7f74fc67d96da65dec6b0ac2a6b58d63.mp3"
   },
-  "06248f189e50541e88316228dd8b7d62": {
-    "text": "I'm here for you. Tell me more.",
+  "58acb8572928b830a4e93d5a6406dd1b": {
+    "text": "I'm hearing that you're feeling overwhelmed with your test tomorrow and that's making it hard for yo",
     "lang": "en",
-    "created": "2026-05-01T13:41:13.387848",
-    "file": "tts\\cache\\06248f189e50541e88316228dd8b7d62.mp3"
+    "created": "2026-05-11T23:24:10.665602",
+    "file": "tts\\cache\\58acb8572928b830a4e93d5a6406dd1b.mp3"
   },
-  "6a39129ae4884aae511a208fff657c5b": {
-    "text": "I hear your pain. You're not alone in this.",
+  "fe6c22798acc32b38b7ca3510fcecd1a": {
+    "text": "I'm hearing that the relationship you're in is on your mind right now, and it's been a tough day wit",
     "lang": "en",
-    "created": "2026-05-01T13:41:59.195461",
-    "file": "tts\\cache\\6a39129ae4884aae511a208fff657c5b.mp3"
+    "created": "2026-05-11T23:25:01.492001",
+    "file": "tts\\cache\\fe6c22798acc32b38b7ca3510fcecd1a.mp3"
   },
-  "c8544690fdb770efa846bba83a5138cb": {
-    "text": "Hello, how are you today?",
+  "cb6f3de8eed22c5bb149353f9f4a80d3": {
+    "text": "I'm hearing that the test you're having is actually your wife's final year project viva, and it soun",
     "lang": "en",
-    "created": "2026-05-01T13:42:41.045663",
-    "file": "tts\\cache\\c8544690fdb770efa846bba83a5138cb.mp3"
+    "created": "2026-05-11T23:25:41.738030",
+    "file": "tts\\cache\\cb6f3de8eed22c5bb149353f9f4a80d3.mp3"
   },
-  "6aaee946a8d977967a3acd263817cdf7": {
-    "text": "Namaste, aap kaise ho?",
-    "lang": "hi",
-    "created": "2026-05-01T13:56:05.917708",
-    "file": "tts\\cache\\6aaee946a8d977967a3acd263817cdf7.mp3"
-  },
-  "027dff2b7c106d3fc214079c68e21cc1": {
-    "text": "What do you see or hear around you right now?",
-    "lang": "en",
-    "created": "2026-05-01T14:07:14.005160",
-    "file": "tts\\cache\\027dff2b7c106d3fc214079c68e21cc1.mp3"
-  },
-  "5d6540bd335b18abdab3545b38acd8ea": {
-    "text": "Let's take a breath and focus on the present moment.",
-    "lang": "en",
-    "created": "2026-05-01T14:15:43.936376",
-    "file": "tts\\cache\\5d6540bd335b18abdab3545b38acd8ea.mp3"
-  },
-  "5dea2f80869ab26ccf93a77cefb68c70": {
-    "text": "I hear you. Your feelings are completely valid.",
-    "lang": "en",
-    "created": "2026-05-01T14:16:07.558717",
-    "file": "tts\\cache\\5dea2f80869ab26ccf93a77cefb68c70.mp3"
-  },
-  "905ce74bbd2d794055879f412226914d": {
-    "text": "Your pain is real, and it matters.",
-    "lang": "en",
-    "created": "2026-05-01T14:16:27.603183",
-    "file": "tts\\cache\\905ce74bbd2d794055879f412226914d.mp3"
-  },
-  "43bcc6f45b07fc24243b371f10c39427": {
-    "text": "Notice what you feel right now, in this moment.",
-    "lang": "en",
-    "created": "2026-05-01T14:20:34.937174",
-    "file": "tts\\cache\\43bcc6f45b07fc24243b371f10c39427.mp3"
-  },
-  "0cd63d0bed5140d7dc5597d270a8cb40": {
-    "text": "That sounds really difficult. I'm here with you.",
-    "lang": "en",
-    "created": "2026-05-01T14:20:51.926221",
-    "file": "tts\\cache\\0cd63d0bed5140d7dc5597d270a8cb40.mp3"
-  },
-  "5bb098fdc3c3082224e536b23de35c10": {
-    "text": "Ground yourself in the present.",
-    "lang": "en",
-    "created": "2026-05-01T14:34:38.956270",
-    "file": "tts\\cache\\5bb098fdc3c3082224e536b23de35c10.mp3"
-  },
-  "ff822916a26c937973a57fc702c7a887": {
-    "text": "What you're experiencing is real and understandable.",
-    "lang": "en",
-    "created": "2026-05-01T14:35:17.122159",
-    "file": "tts\\cache\\ff822916a26c937973a57fc702c7a887.mp3"
-  },
-  "edf24b1f39743bc4a6ded303e57fe36d": {
-    "text": "Let's pause and notice this moment.",
-    "lang": "en",
-    "created": "2026-05-01T14:37:29.222166",
-    "file": "tts\\cache\\edf24b1f39743bc4a6ded303e57fe36d.mp3"
-  },
-  "691dcea0703f97ae87dd1bd2f79a6757": {
-    "text": "I hear you, and your feelings matter.",
-    "lang": "en",
-    "created": "2026-05-01T14:37:51.200380",
-    "file": "tts\\cache\\691dcea0703f97ae87dd1bd2f79a6757.mp3"
-  },
-  "fb5f7ff77769b5042bfd3c90f31acd27": {
-    "text": "What's one thing around you that brings you comfort right now?",
-    "lang": "en",
-    "created": "2026-05-01T14:43:21.477493",
-    "file": "tts\\cache\\fb5f7ff77769b5042bfd3c90f31acd27.mp3"
-  },
-  "5b9bad00bd7ab866e916e62a649a9939": {
-    "text": "That sounds really hard. I'm with you.",
-    "lang": "en",
-    "created": "2026-05-01T14:43:33.356734",
-    "file": "tts\\cache\\5b9bad00bd7ab866e916e62a649a9939.mp3"
-  },
-  "c3c264cfd9a8fc9349fd4f2b02a1346b": {
-    "text": "Feel the moment. What sounds do you hear? What do you smell?",
-    "lang": "en",
-    "created": "2026-05-01T14:44:06.186865",
-    "file": "tts\\cache\\c3c264cfd9a8fc9349fd4f2b02a1346b.mp3"
-  },
-  "35c100f83c84fca8c08838300a21e8cc": {
-    "text": "I hear you, and those feelings are completely real.",
-    "lang": "en",
-    "created": "2026-05-01T14:44:31.146679",
-    "file": "tts\\cache\\35c100f83c84fca8c08838300a21e8cc.mp3"
-  },
-  "f7bcc1ecb19e280a149e59fbb7d7291e": {
-    "text": "Let's pause and ground ourselves. Notice your feet on the ground.",
-    "lang": "en",
-    "created": "2026-05-01T14:47:50.889046",
-    "file": "tts\\cache\\f7bcc1ecb19e280a149e59fbb7d7291e.mp3"
-  },
-  "50372b83765e26e5f1fa24b7be39fba3": {
-    "text": "\"Take a deep breath with me and notice the sensation of the air moving in and out of your body. What",
-    "lang": "en",
-    "created": "2026-05-02T17:29:40.103245",
-    "file": "tts\\cache\\50372b83765e26e5f1fa24b7be39fba3.mp3"
-  },
-  "bed6a41bfe9a420efd4324a55691d6bf": {
-    "text": "\"I hear that sadness. It can be really tough to carry around. Let's bring you back to the present mo",
-    "lang": "en",
-    "created": "2026-05-04T12:01:37.426577",
-    "file": "tts\\cache\\bed6a41bfe9a420efd4324a55691d6bf.mp3"
-  },
-  "05d8f4aef5c960ab309786f73e5cb183": {
-    "text": "\"I hear you're mentioning your laptop. That's a pretty big part of your daily life, isn't it? What's",
-    "lang": "en",
-    "created": "2026-05-04T12:02:04.602591",
-    "file": "tts\\cache\\05d8f4aef5c960ab309786f73e5cb183.mp3"
-  },
-  "4ca7f8f9cc09d2a47668d7e787c801f2": {
-    "text": "\"I hear that watching YouTube is a daily ritual for you. It's like your own personal coffee - someth",
-    "lang": "en",
-    "created": "2026-05-04T12:03:01.882645",
-    "file": "tts\\cache\\4ca7f8f9cc09d2a47668d7e787c801f2.mp3"
-  },
-  "61b369542d106cbe24affdb9b25eaca1": {
-    "text": "\"I hear that sadness again, and I'm here for you. Let's take a deep breath together. What can you se",
-    "lang": "en",
-    "created": "2026-05-04T12:03:44.289870",
-    "file": "tts\\cache\\61b369542d106cbe24affdb9b25eaca1.mp3"
-  },
-  "ac0b0d714f2bfc18814010dc49df0d67": {
-    "text": "\"Hey, I hear you're feeling sad right now. Let's take a little time to ground ourselves, okay? Take ",
-    "lang": "en",
-    "created": "2026-05-04T12:04:33.100563",
-    "file": "tts\\cache\\ac0b0d714f2bfc18814010dc49df0d67.mp3"
-  },
-  "61ab5eec5a1d7de5d3044122c97531f5": {
-    "text": "I completely get it! It can be really hard to focus on things when we're not in the mood. You know w",
-    "lang": "en",
-    "created": "2026-05-04T12:05:17.729266",
-    "file": "tts\\cache\\61ab5eec5a1d7de5d3044122c97531f5.mp3"
-  },
-  "4857d282cf30449d1808dfe18ec30504": {
-    "text": "Your emotions matter, and I'm here to listen.",
-    "lang": "en",
-    "created": "2026-05-06T22:21:46.921838",
-    "file": "tts\\cache\\4857d282cf30449d1808dfe18ec30504.mp3"
-  },
-  "a746022360571f9b20efb9158032317c": {
-    "text": "\"I'm really sorry that you're feeling down today. Let's take a breather and focus on the present for",
-    "lang": "en",
-    "created": "2026-05-06T23:55:23.803664",
-    "file": "tts\\cache\\a746022360571f9b20efb9158032317c.mp3"
-  },
-  "6089c5988637822fd12b697ca9af7840": {
-    "text": "I'm here for you. How are you feeling right now?",
-    "lang": "en",
-    "created": "2026-05-07T15:35:06.915356",
-    "file": "tts\\cache\\6089c5988637822fd12b697ca9af7840.mp3"
-  },
-  "c1f7d6db591114127f9307a003551b1e": {
-    "text": "It seems like you're feeling a bit quiet today, would you like to talk about what's on your mind?",
-    "lang": "en",
-    "created": "2026-05-07T16:33:56.118642",
-    "file": "tts\\cache\\c1f7d6db591114127f9307a003551b1e.mp3"
-  },
-  "6b8d8efdca5df1ccc3959cf11001c3ed": {
-    "text": "Since the user hasn't said anything yet, I'll start with a gentle greeting. It's nice to have some c",
-    "lang": "en",
-    "created": "2026-05-07T16:34:11.053799",
-    "file": "tts\\cache\\6b8d8efdca5df1ccc3959cf11001c3ed.mp3"
-  },
-  "52e25e02669f7dc61374d6de025d2c6f": {
-    "text": "It seems like you're feeling a bit quiet today, would you like to talk about something that's been o",
-    "lang": "en",
-    "created": "2026-05-07T16:38:30.116572",
-    "file": "tts\\cache\\52e25e02669f7dc61374d6de025d2c6f.mp3"
-  },
-  "21e2cb0cf0e0dc8564790c2f85443bee": {
-    "text": "You seem a bit quiet today, and I'm here to listen if you'd like to talk about something that's on y",
-    "lang": "en",
-    "created": "2026-05-07T21:22:19.100053",
-    "file": "tts\\cache\\21e2cb0cf0e0dc8564790c2f85443bee.mp3"
-  },
-  "471da9b7a7c0cc0d1a1185a9d0d3407f": {
-    "text": "Since the user hasn't said anything yet, let's start fresh. It seems like you're feeling a bit quiet",
-    "lang": "en",
-    "created": "2026-05-07T21:22:26.156411",
-    "file": "tts\\cache\\471da9b7a7c0cc0d1a1185a9d0d3407f.mp3"
-  },
-  "d3d22c0916a6dc86f28bf1b5f80eb294": {
-    "text": "You seem a bit quiet today, and I'm here to listen if you'd like to talk about something that's on y",
-    "lang": "en",
-    "created": "2026-05-07T21:22:32.255361",
-    "file": "tts\\cache\\d3d22c0916a6dc86f28bf1b5f80eb294.mp3"
-  },
-  "a5470e3ee77055c9d340cabd076e070d": {
-    "text": "You seem a bit quiet today, and I'm here to listen if you'd like to talk about something that's been",
-    "lang": "en",
-    "created": "2026-05-07T21:22:38.803357",
-    "file": "tts\\cache\\a5470e3ee77055c9d340cabd076e070d.mp3"
-  },
-  "04697c24011da7e3866f0a87c4d6a4ac": {
-    "text": "You seem a bit quiet today, and I'm here to listen if you'd like to talk about something that's been",
-    "lang": "en",
-    "created": "2026-05-07T21:22:44.372138",
-    "file": "tts\\cache\\04697c24011da7e3866f0a87c4d6a4ac.mp3"
-  },
-  "048973ea11de6a7c0c735ae40f4d7c3c": {
-    "text": "You seem a bit quiet today, and I'm here to listen if you'd like to talk about something that's been",
-    "lang": "en",
-    "created": "2026-05-07T21:22:50.951298",
-    "file": "tts\\cache\\048973ea11de6a7c0c735ae40f4d7c3c.mp3"
-  },
-  "2e4db87aa2c958a16062ffd0b7424388": {
-    "text": "It seems like you're feeling a bit stuck, and I'm here to listen and help if I can. Sometimes talkin",
-    "lang": "en",
-    "created": "2026-05-07T21:22:58.043935",
-    "file": "tts\\cache\\2e4db87aa2c958a16062ffd0b7424388.mp3"
-  },
-  "088147f2ca08853db9c7c77bf2736455": {
-    "text": "I can see that you're feeling a bit quiet today, and I'm here to listen if you'd like to talk about ",
-    "lang": "en",
-    "created": "2026-05-07T21:23:04.830782",
-    "file": "tts\\cache\\088147f2ca08853db9c7c77bf2736455.mp3"
-  },
-  "f5119e1e213eb72233d777add4831243": {
-    "text": "You seem a bit quiet today, and I'm here to listen if you'd like to talk about something that's on y",
-    "lang": "en",
-    "created": "2026-05-07T21:23:10.320696",
-    "file": "tts\\cache\\f5119e1e213eb72233d777add4831243.mp3"
-  },
-  "d9abadf2cf33ab23606ad4cf4dc9b338": {
-    "text": "It seems like you're feeling a bit stuck, and I'm here to listen and help if you need to talk about ",
-    "lang": "en",
-    "created": "2026-05-07T21:23:15.831013",
-    "file": "tts\\cache\\d9abadf2cf33ab23606ad4cf4dc9b338.mp3"
-  },
-  "b223ff78d74aad192768568020f5f866": {
-    "text": "I can see that you're feeling a bit quiet today, and I'm here to listen if you'd like to talk about ",
-    "lang": "en",
-    "created": "2026-05-07T21:23:23.126831",
-    "file": "tts\\cache\\b223ff78d74aad192768568020f5f866.mp3"
-  },
-  "a6f91aceb58127bb6a7a6fac6f728a70": {
-    "text": "You seem a bit lost in thought today, and I'm here to listen if you'd like to talk about something t",
-    "lang": "en",
-    "created": "2026-05-07T21:23:30.288844",
-    "file": "tts\\cache\\a6f91aceb58127bb6a7a6fac6f728a70.mp3"
-  },
-  "3875b6a1e09e0513561a0bc54a710d25": {
-    "text": "It seems like you've been feeling a bit quiet today, and I'm here to listen if you'd like to talk ab",
-    "lang": "en",
-    "created": "2026-05-07T21:23:38.367964",
-    "file": "tts\\cache\\3875b6a1e09e0513561a0bc54a710d25.mp3"
-  },
-  "b41b9ad3352e1dd17b908f2f7953a09e": {
-    "text": "It's completely okay to feel quiet sometimes, and I'm here to listen when you're ready to share what",
-    "lang": "en",
-    "created": "2026-05-07T21:23:46.174325",
-    "file": "tts\\cache\\b41b9ad3352e1dd17b908f2f7953a09e.mp3"
-  },
-  "7697fe9d1392c5194b5f7b182ce7d2a5": {
-    "text": "Hello, I'm so glad you can hear me, and I'm here to listen to you, how has your day been so far?",
-    "lang": "en",
-    "created": "2026-05-08T10:24:01.838642",
-    "file": "tts\\cache\\7697fe9d1392c5194b5f7b182ce7d2a5.mp3"
-  },
-  "19bb6990e00dfecfc605163efd15514e": {
-    "text": "I'm here to listen and it's lovely to hear your voice, how has your day been so far?",
-    "lang": "en",
-    "created": "2026-05-08T10:24:05.717623",
-    "file": "tts\\cache\\19bb6990e00dfecfc605163efd15514e.mp3"
-  },
-  "5a6ef4744e868eeb668be94105bd961b": {
-    "text": "I can feel the sadness in your words, and it's completely okay to feel that way, what's been on your",
-    "lang": "en",
-    "created": "2026-05-08T10:24:20.329584",
-    "file": "tts\\cache\\5a6ef4744e868eeb668be94105bd961b.mp3"
-  },
-  "d5a688f99ca0542a4a9035a2fdc24171": {
-    "text": "I can sense that you're feeling a bit uncertain about whether I can help, and that's completely okay",
-    "lang": "en",
-    "created": "2026-05-08T10:24:40.979401",
-    "file": "tts\\cache\\d5a688f99ca0542a4a9035a2fdc24171.mp3"
-  },
-  "f379ed6a6fb1df69c74226714567db6c": {
-    "text": "I can sense the disappointment in your words, it's like a weight is holding you back, what's been th",
-    "lang": "en",
-    "created": "2026-05-08T10:28:53.314138",
-    "file": "tts\\cache\\f379ed6a6fb1df69c74226714567db6c.mp3"
-  },
-  "27205a22f71a4d6b618c4e2279ab45d9": {
-    "text": "Hello, I can hear you just fine, and it's lovely to connect with you, how has your day been so far?",
-    "lang": "en",
-    "created": "2026-05-08T10:59:32.676453",
-    "file": "tts\\cache\\27205a22f71a4d6b618c4e2279ab45d9.mp3"
-  },
-  "de141da2fbf21f6564b1c077c2ebf9fd": {
-    "text": "I can see that sadness has caught up with you today, let's try to shift our focus to something that ",
-    "lang": "en",
-    "created": "2026-05-08T11:20:22.480535",
-    "file": "tts\\cache\\de141da2fbf21f6564b1c077c2ebf9fd.mp3"
-  },
-  "425e0f636501c654aab904a1ac5abe62": {
-    "text": "Aaj ka din aapke liye theek nahin hai, main samajh sakta hoon, lekin kya aapke jeevan mein kuchh ais",
-    "lang": "en",
-    "created": "2026-05-08T11:36:07.909664",
-    "file": "tts\\cache\\425e0f636501c654aab904a1ac5abe62.mp3"
-  },
-  "67571a509f503b2976835c81a83f5255": {
-    "text": "Mujhe aapki udasi samajh mein aati hai, aur main yahaan aapke saath hoon, aapki khushi ke bare mein ",
-    "lang": "en",
-    "created": "2026-05-08T11:36:33.822796",
-    "file": "tts\\cache\\67571a509f503b2976835c81a83f5255.mp3"
-  },
-  "3c6a760149607137a1b48c4a35ed0e33": {
-    "text": "Mujhe aapki udasi dekhar bahut bura lag raha hai, aapko kya hai jo aapko itna dukhi kar raha hai?",
-    "lang": "en",
-    "created": "2026-05-08T11:38:45.332116",
-    "file": "tts\\cache\\3c6a760149607137a1b48c4a35ed0e33.mp3"
-  },
-  "2c0871beecd2d7c53e088f96f426cfdb": {
-    "text": "Mujhe khushi hai ki aapne mujse baat ki, main aapki madad karne ke liye yahan hoon, aapke jeevan mei",
-    "lang": "en",
-    "created": "2026-05-08T11:38:55.979425",
-    "file": "tts\\cache\\2c0871beecd2d7c53e088f96f426cfdb.mp3"
-  },
-  "0abddd137ae28bf6dc1e553a645925ef": {
-    "text": "Mujhe aapki baat sunkar bahut dukh ho raha hai, aaj ka din aapke liye kaisa guzra hai?",
-    "lang": "en",
-    "created": "2026-05-08T11:46:52.331174",
-    "file": "tts\\cache\\0abddd137ae28bf6dc1e553a645925ef.mp3"
-  },
-  "7f22c971043ba4accca0162e853ddc7c": {
-    "text": "Aapki baat sunkar lagta hai ki aapko kuchh samajh nahi aa raha, kya main aapki madad kar sakta hoon?",
-    "lang": "en",
-    "created": "2026-05-08T11:47:04.814148",
-    "file": "tts\\cache\\7f22c971043ba4accca0162e853ddc7c.mp3"
-  },
-  "17a26ef95ee5fffc11f66f435833e185": {
-    "text": "Aapne Hindi kaha, mujhe lagta hai ki aap apni bhavnayein vyakt karna chahte hain, kuchh khushi ke pa",
-    "lang": "en",
-    "created": "2026-05-08T11:47:10.438810",
-    "file": "tts\\cache\\17a26ef95ee5fffc11f66f435833e185.mp3"
-  },
-  "ed85c9a357c96031dc5ea33465dbad69": {
-    "text": "Mujhe aapki awaaz sunkar bahut accha lagta hai, aaj hum kuchh khushiyon ki baat karte hain, aapke ba",
-    "lang": "en",
-    "created": "2026-05-08T11:47:31.653115",
-    "file": "tts\\cache\\ed85c9a357c96031dc5ea33465dbad69.mp3"
-  },
-  "4da5e98c0a269b5bd5ac788ed9b3a281": {
-    "text": "Aapki awaaz mein gussa hai, lekin main yahaan aapke saath hoon, aapki bhavnayein sunne ke liye. Kya ",
-    "lang": "en",
-    "created": "2026-05-08T11:47:45.573493",
-    "file": "tts\\cache\\4da5e98c0a269b5bd5ac788ed9b3a281.mp3"
-  },
-  "2162572a565d7c96f1910f69b4742bed": {
-    "text": "Hello, I'm so glad you're here and that we can chat, how has your day been so far?",
-    "lang": "en",
-    "created": "2026-05-08T17:43:37.099283",
-    "file": "tts\\cache\\2162572a565d7c96f1910f69b4742bed.mp3"
-  },
-  "91cd9408f0fd86949a6c689b2043821f": {
-    "text": "I can feel the sadness in your words today, and I'm here to listen and help if I can. Sometimes, tal",
-    "lang": "en",
-    "created": "2026-05-08T17:52:11.567102",
-    "file": "tts\\cache\\91cd9408f0fd86949a6c689b2043821f.mp3"
-  },
-  "c8e1c89291160bc3e2a1e2394ab6418c": {
-    "text": "I'm so glad we're connected now, and I can hear you clearly, how has your day been so far?",
-    "lang": "en",
-    "created": "2026-05-08T17:59:03.423699",
-    "file": "tts\\cache\\c8e1c89291160bc3e2a1e2394ab6418c.mp3"
-  },
-  "c9efec3716237b481c39f3cd425bfa0e": {
-    "text": "I'm so sorry to hear you're feeling sad today, that can be really tough to go through. Sometimes tal",
-    "lang": "en",
-    "created": "2026-05-08T18:17:19.823335",
-    "file": "tts\\cache\\c9efec3716237b481c39f3cd425bfa0e.mp3"
-  },
-  "9483111021d158fcfb61402d15bfd5a4": {
-    "text": "I can sense the sadness in your words, and I'm here to listen and help if I can, what's been on your",
-    "lang": "en",
-    "created": "2026-05-08T18:26:34.765714",
-    "file": "tts\\cache\\9483111021d158fcfb61402d15bfd5a4.mp3"
-  },
-  "32c8cf5b486da870d620c2612a7541c4": {
-    "text": "I can tell there's something on your mind, and I'm here to listen, what's been going on with your si",
-    "lang": "en",
-    "created": "2026-05-08T18:42:18.677740",
-    "file": "tts\\cache\\32c8cf5b486da870d620c2612a7541c4.mp3"
-  },
-  "edc8a4e7a3c92315dc6d0afaa4b78c6a": {
-    "text": "I can sense a hint of playfulness behind your words, and that's lovely to see, what's something that",
-    "lang": "en",
-    "created": "2026-05-08T18:42:45.364993",
-    "file": "tts\\cache\\edc8a4e7a3c92315dc6d0afaa4b78c6a.mp3"
-  },
-  "1bcbdf55556ed4e72163905d61b212c8": {
-    "text": "Main theek hoon, dhanyavad! Aaj ka din kaisa guzra hai aapka, kuchh khass hua?",
-    "lang": "en",
-    "created": "2026-05-08T18:43:42.519658",
-    "file": "tts\\cache\\1bcbdf55556ed4e72163905d61b212c8.mp3"
-  },
-  "9c48b83c0c1bd8eb1160c0c5a3134b53": {
-    "text": "Aaj subah se kaam karne mein bahut thakaan ho sakti hai, lekin kya aapne aaj kuchh aisa kiya hai jo ",
-    "lang": "en",
-    "created": "2026-05-08T18:44:02.481444",
-    "file": "tts\\cache\\9c48b83c0c1bd8eb1160c0c5a3134b53.mp3"
-  },
-  "f0faab23bda2158243b299b1315ed9fc": {
-    "text": "Abe Chalna Hat Ja, aapka yeh vaky dhyan akarshit karta hai, aaj ka din kaisa raha aapke liye, kuchh ",
-    "lang": "en",
-    "created": "2026-05-08T18:44:29.711986",
-    "file": "tts\\cache\\f0faab23bda2158243b299b1315ed9fc.mp3"
-  },
-  "c689d5b8fd94b836628b5250a244f7db": {
-    "text": "Abe tum itni jaldi chalna kyun chahte ho, kya aaj kuchh bahut bhaari baat dil mein hai? Maine suna h",
-    "lang": "en",
-    "created": "2026-05-08T18:44:53.906616",
-    "file": "tts\\cache\\c689d5b8fd94b836628b5250a244f7db.mp3"
-  },
-  "134ce3b4026e96fec316245b8060af75": {
-    "text": "Abe, aapka gussa samajh mein aata hai, lekin main yahaan aapke liye hoon, aapke saath baat karne ke ",
-    "lang": "en",
-    "created": "2026-05-08T18:45:31.103421",
-    "file": "tts\\cache\\134ce3b4026e96fec316245b8060af75.mp3"
-  },
-  "921bc9471f06cf75545bdf4ab879f8f4": {
-    "text": "I can feel the sadness in your words, and I'm here to listen and support you, let's think about some",
-    "lang": "en",
-    "created": "2026-05-08T21:00:28.963610",
-    "file": "tts\\cache\\921bc9471f06cf75545bdf4ab879f8f4.mp3"
-  },
-  "fa3fb50bcf1a030f05a533718d3b8fac": {
-    "text": "Hello, I'm doing great, thanks for asking, and it's lovely to chat with you, what's been the highlig",
-    "lang": "en",
-    "created": "2026-05-09T12:55:50.421181",
-    "file": "tts\\cache\\fa3fb50bcf1a030f05a533718d3b8fac.mp3"
-  },
-  "8f6c5168044cdf49fa5d03c99fbe99c2": {
-    "text": "That's wonderful to hear you're doing great, it's always lovely to start a conversation on a positiv",
-    "lang": "en",
-    "created": "2026-05-09T12:56:19.191234",
-    "file": "tts\\cache\\8f6c5168044cdf49fa5d03c99fbe99c2.mp3"
-  },
-  "035a95066f8aa5e4c509bc4c6ac27fc3": {
-    "text": "I'm so glad we're having this lovely conversation, it's great to hear you're doing well, what's been",
-    "lang": "en",
-    "created": "2026-05-09T12:56:40.804110",
-    "file": "tts\\cache\\035a95066f8aa5e4c509bc4c6ac27fc3.mp3"
-  },
-  "1aa6fc343553eebd6369ea960341ed16": {
-    "text": "I can sense that you're not feeling your best today, and that can be really tough - what's been on y",
-    "lang": "en",
-    "created": "2026-05-09T12:57:27.945895",
-    "file": "tts\\cache\\1aa6fc343553eebd6369ea960341ed16.mp3"
-  },
-  "4151447a9f935b623a10e00b196a584e": {
-    "text": "I can feel the frustration and sadness in your words, and I'm here to listen and support you through",
-    "lang": "en",
-    "created": "2026-05-09T12:57:50.015935",
-    "file": "tts\\cache\\4151447a9f935b623a10e00b196a584e.mp3"
-  },
-  "e54145dc8f6b3f305a82cfd825b82bb5": {
-    "text": "Aaj aapko dukhi mehsoos ho raha hai, yeh samajhne ke liye ki aap kis baat se pareshan hain, main yah",
-    "lang": "en",
-    "created": "2026-05-09T12:58:52.631677",
-    "file": "tts\\cache\\e54145dc8f6b3f305a82cfd825b82bb5.mp3"
-  },
-  "9321ec11801c372a722b7c4b9cc6141c": {
-    "text": "I can feel the sadness in your words today, and I'm here to listen and help if I can, what's been on",
-    "lang": "en",
-    "created": "2026-05-11T18:49:17.466082",
-    "file": "tts\\cache\\9321ec11801c372a722b7c4b9cc6141c.mp3"
-  },
-  "72e4119f3ce95019eaa1886afb9e2b7e": {
-    "text": "I'm so glad you're open to suggestions, and I want you to know that I'm here for you, let's think ab",
-    "lang": "en",
-    "created": "2026-05-11T18:49:46.804150",
-    "file": "tts\\cache\\72e4119f3ce95019eaa1886afb9e2b7e.mp3"
-  },
-  "36584febd4d6a2b4505f4bfddfebf4bc": {
-    "text": "Don't worry, I'm here with you and tomorrow will be over before you know it, what's one thing that's",
-    "lang": "en",
-    "created": "2026-05-11T18:50:19.593785",
-    "file": "tts\\cache\\36584febd4d6a2b4505f4bfddfebf4bc.mp3"
-  },
-  "181ae2eef73e88a375096066d6ca83c6": {
-    "text": "Don't say no, let's think of something that can help you feel better about your test tomorrow, what'",
-    "lang": "en",
-    "created": "2026-05-11T18:51:08.803569",
-    "file": "tts\\cache\\181ae2eef73e88a375096066d6ca83c6.mp3"
-  },
-  "3895e1cbb218d646adc641e565d2be34": {
-    "text": "I can feel how worried you are about failing, and it's completely normal to have those feelings, but",
-    "lang": "en",
-    "created": "2026-05-11T18:51:29.144293",
-    "file": "tts\\cache\\3895e1cbb218d646adc641e565d2be34.mp3"
-  },
-  "06590dc8ac937ac59ee10cb7d5713278": {
-    "text": "I can feel how much you miss home and it's completely normal to feel sad when you're away from the p",
-    "lang": "en",
-    "created": "2026-05-11T18:57:21.041068",
-    "file": "tts\\cache\\06590dc8ac937ac59ee10cb7d5713278.mp3"
-  },
-  "c629b19f9d8b1a004e8944f0479d211d": {
-    "text": "I can feel the sadness in your words, and it's okay to feel that way, but let's think about somethin",
-    "lang": "en",
-    "created": "2026-05-11T19:00:17.046483",
-    "file": "tts\\cache\\c629b19f9d8b1a004e8944f0479d211d.mp3"
-  },
-  "99760f7b70d7754c651d1630378457c0": {
-    "text": "Kya hua, aapko kuch pareshani hai? Main yahan aapki madad ke liye hoon, hum is mushkil samay ko saat",
-    "lang": "en",
-    "created": "2026-05-11T19:50:52.476820",
-    "file": "tts\\cache\\99760f7b70d7754c651d1630378457c0.mp3"
-  },
-  "a8f14e7a035035a3bf58dacf4b3f4f34": {
-    "text": "Hello, I can hear you loud and clear, it's so great to connect with you today, what's been the highl",
-    "lang": "en",
-    "created": "2026-05-11T20:24:32.922297",
-    "file": "tts\\cache\\a8f14e7a035035a3bf58dacf4b3f4f34.mp3"
-  },
-  "5c946fdffc11ca561e9275422008a61f": {
-    "text": "Aapne jo kaha vah mujhe samajh mein aaya, aur mujhe lagta hai ki aap data se acche model ko train ka",
-    "lang": "en",
-    "created": "2026-05-11T20:25:15.936135",
-    "file": "tts\\cache\\5c946fdffc11ca561e9275422008a61f.mp3"
-  },
-  "d6957367d60163116aef772e1ca8942c": {
-    "text": "Namaste, aapne hello hello kaha, kaafi energetic lag rahe hain aaj, kya aaj ka din aapke liye khas h",
-    "lang": "en",
-    "created": "2026-05-11T20:26:26.028875",
-    "file": "tts\\cache\\d6957367d60163116aef772e1ca8942c.mp3"
-  },
-  "c73318ee79e44559c661aeb7766c216e": {
-    "text": "Hello, it's so great to talk to you, I hope you're having a wonderful day and we can make it even be",
-    "lang": "en",
-    "created": "2026-05-11T20:29:33.743874",
-    "file": "tts\\cache\\c73318ee79e44559c661aeb7766c216e.mp3"
-  },
-  "575910ff11d520555030eb8dc479a72f": {
-    "text": "Doston, aaj kya hua jo aapko itna udass banaya, kya main kuchh kar sakta hoon jo aapko behtar lagaay",
-    "lang": "en",
-    "created": "2026-05-11T20:43:59.218916",
-    "file": "tts\\cache\\575910ff11d520555030eb8dc479a72f.mp3"
-  },
-  "12a6b720de9a1e459211442aeafb3c0a": {
-    "text": "Mujhe tumhari baat sunke bahut dukh ho raha hai, tumhare saath baat karke mujhe lagta hai ki tumhare",
+  "f9b606d374f875f1996f1dc5f9d551c4": {
+    "text": "Your wife's final year project viva is a big deal, let's take a deep breath together and focus on so",
     "lang": "en",
-    "created": "2026-05-11T20:52:54.803698",
-    "file": "tts\\cache\\12a6b720de9a1e459211442aeafb3c0a.mp3"
+    "created": "2026-05-11T23:34:39.672850",
+    "file": "tts\\cache\\f9b606d374f875f1996f1dc5f9d551c4.mp3"
   },
-  "af84ff4d125bb8be1117d686e1087587": {
-    "text": "Aaj ka din theek nahin hai, lekin hum milkar isse behtar bana sakte hain, chalate hain ek naya shuru",
+  "2a1002d556a472510bf39dede391d024": {
+    "text": "That's great to hear you're feeling happy today. Let's share a little joke to keep the smile going: ",
     "lang": "en",
-    "created": "2026-05-11T20:53:24.629129",
-    "file": "tts\\cache\\af84ff4d125bb8be1117d686e1087587.mp3"
+    "created": "2026-05-11T23:35:17.763202",
+    "file": "tts\\cache\\2a1002d556a472510bf39dede391d024.mp3"
   },
-  "946faac12d3de638209b2702c9e0b7e0": {
-    "text": "Aaj hum kuchh achha sunenge, main aapke saath baat karke bahut khush hoon, chaliye shuru karte hain!",
+  "896e65fac74a493634a690c833222271": {
+    "text": "You're feeling happy today and just said something was really funny. Let's play a quick word associa",
     "lang": "en",
-    "created": "2026-05-11T20:53:51.450986",
-    "file": "tts\\cache\\946faac12d3de638209b2702c9e0b7e0.mp3"
+    "created": "2026-05-11T23:35:47.308107",
+    "file": "tts\\cache\\896e65fac74a493634a690c833222271.mp3"
   },
-  "8669ef041bc3d39bab28dad29f6d8421": {
-    "text": "Boliye, aaj ka din kuchh accha hone wala hai, main aapke saath baat karke khush hoon, chaliye hum ku",
+  "6e4e38601f0a6792008764f79821e6e5": {
+    "text": "That's a new hello. Let's play a quick word association game to bring a smile - I'll start with 'hap",
     "lang": "en",
-    "created": "2026-05-11T20:54:12.589785",
-    "file": "tts\\cache\\8669ef041bc3d39bab28dad29f6d8421.mp3"
+    "created": "2026-05-11T23:55:49.135136",
+    "file": "tts\\cache\\6e4e38601f0a6792008764f79821e6e5.mp3"
   },
-  "b180f64fccb4afc7d1a363451df94c64": {
-    "text": "Toh suniye, main aapko ek bahut hi dilchasp kahani sunaunga, jo aapko hanste-hanste hasa degi, Aur a",
+  "c8a0a959f19d29814b5665688db829e6": {
+    "text": "Let's take a deep breath together and focus on the present moment. I recall you were feeling overwhe",
     "lang": "en",
-    "created": "2026-05-11T20:55:26.334291",
-    "file": "tts\\cache\\b180f64fccb4afc7d1a363451df94c64.mp3"
+    "created": "2026-05-11T23:58:47.808632",
+    "file": "tts\\cache\\c8a0a959f19d29814b5665688db829e6.mp3"
   },
-  "15877f909339cb40232510d6f9276c0f": {
-    "text": "Aapne sunaunga jo kaha, toh main aapko ek bahut hi dilchasp kahani sunaunga, jo aapko hanste-hanste ",
+  "67f38bd041ab9afb7ab23238863adc0c": {
+    "text": "Support is here for you, let's take a deep breath together. I recall your wife's final year project ",
     "lang": "en",
-    "created": "2026-05-11T20:55:43.032508",
-    "file": "tts\\cache\\15877f909339cb40232510d6f9276c0f.mp3"
+    "created": "2026-05-11T23:59:28.309541",
+    "file": "tts\\cache\\67f38bd041ab9afb7ab23238863adc0c.mp3"
   },
-  "60abbd2a8270f246ee1266f2a459cdc0": {
-    "text": "Main aapki kahani ke liye utsuk hoon, aapko jo kahani sunani hai wo zarur dilchasp hogi, chaliye shu",
+  "2dffb8ab918f3db4860934d61d505297": {
+    "text": "Nice to meet you again, Arpit. Let's take a deep breath together and focus on the present moment. Ca",
     "lang": "en",
-    "created": "2026-05-11T20:55:59.598628",
-    "file": "tts\\cache\\60abbd2a8270f246ee1266f2a459cdc0.mp3"
+    "created": "2026-05-12T00:03:41.423325",
+    "file": "tts\\cache\\2dffb8ab918f3db4860934d61d505297.mp3"
   },
-  "f47a7ec4a4d653215a13df5c82430cb1": {
-    "text": "I'm hearing that sadness is really present for you today, and I'm here to listen. Can you tell me mo",
+  "76465463c44bb053b70f424049a3c561": {
+    "text": "Arpit, let's take a moment to breathe. Can we count backward from 5 together to calm down? Maybe we ",
     "lang": "en",
-    "created": "2026-05-11T22:45:06.687942",
-    "file": "tts\\cache\\f47a7ec4a4d653215a13df5c82430cb1.mp3"
+    "created": "2026-05-12T00:04:21.497419",
+    "file": "tts\\cache\\76465463c44bb053b70f424049a3c561.mp3"
   },
-  "7a3a12ba7f9b1c9dca66252a2b3017ad": {
-    "text": "I'm hearing that you're repeating 'chill' to yourself, which sounds like a way to calm down and soot",
+  "179224fed0fc62969d6453fae612c0c2": {
+    "text": "Nice to share about myself, Arpit. Let's play a quick game - can you name 3 things you're looking fo",
     "lang": "en",
-    "created": "2026-05-11T22:46:00.436720",
-    "file": "tts\\cache\\7a3a12ba7f9b1c9dca66252a2b3017ad.mp3"
+    "created": "2026-05-12T00:08:14.742401",
+    "file": "tts\\cache\\179224fed0fc62969d6453fae612c0c2.mp3"
   }
 }

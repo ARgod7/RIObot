@@ -7,7 +7,22 @@
   const WS_URL = "ws://localhost:8765";
   const micBtn  = document.getElementById("micBtn");
   const micDot  = document.getElementById("micDot");
-  const transcriptEl = document.getElementById("transcript");
+  const micHintEl = document.getElementById("micHint");
+
+  function setMicBtnListening(on) {
+    if (!micBtn) return;
+    const glyph = micBtn.querySelector(".mic-glyph");
+    const label = micBtn.querySelector(".mic-on-label");
+    if (glyph) glyph.textContent = on ? "🔴" : "🎤";
+    if (label) {
+      if (on) {
+        label.removeAttribute("hidden");
+        label.textContent = "On";
+      } else {
+        label.setAttribute("hidden", "");
+      }
+    }
+  }
 
   let ws         = null;
   let recognition = null;
@@ -23,8 +38,8 @@
   let noSpeechTimer = null;
 
   function setMicHint(text) {
-    if (!transcriptEl) return;
-    transcriptEl.textContent = text;
+    if (!micHintEl) return;
+    micHintEl.textContent = text;
   }
 
   // ── WebSocket is managed by app.js ───────────────────────────────────
@@ -91,7 +106,7 @@
       if (finalText) {
         console.log("[MicBridge] Final transcript:", finalText);
         sendTranscript(finalText);
-        setMicHint("You: " + finalText);
+        setMicHint("Sent — waiting for RIO…");
         lastInterimTranscript = "";
         if (interimTimer) {
           clearTimeout(interimTimer);
@@ -217,6 +232,7 @@
   // ── Mic button toggle ─────────────────────────────────────────────────
   function startListening() {
     isListening = true;
+    if (typeof window.openRioChat === "function") window.openRioChat();
     lastSpeechAt = Date.now();
     setMicHint("Starting microphone...");
     if (!recognition) recognition = initRecognition();
@@ -240,10 +256,8 @@
         setMicHint("No speech detected yet. Check mic permission and speak closer to mic.");
       }
     }, 1000);
-    if (micBtn) {
-      micBtn.textContent = "🔴";
-      micBtn.title = "Listening... click to stop";
-    }
+    setMicBtnListening(true);
+    if (micBtn) micBtn.title = "Listening... click to stop";
   }
 
   function stopListening() {
@@ -264,10 +278,8 @@
     lastInterimTranscript = "";
     stopAudioStream();
     setMicHint("Mic stopped.");
-    if (micBtn) {
-      micBtn.textContent = "🎤";
-      micBtn.title = "Click to speak";
-    }
+    setMicBtnListening(false);
+    if (micBtn) micBtn.title = "Click to speak";
   }
 
   if (micBtn) {

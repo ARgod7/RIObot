@@ -160,11 +160,11 @@ class EmotionFusionEngine:
         weights: dict = None,
         staleness_seconds: float = 5.0,
         min_confidence: float = 0.1,
-        # v2: raised from 1.15 → 1.35 (sadness surfaces more reliably)
-        sadness_focus_multiplier: float = 1.35,
-        # v2: lowered from 0.42 → 0.40 (trigger support earlier)
-        sadness_threshold: float = 0.40,
-        sadness_high_threshold: float = 0.62,
+        # v2: raised sadness sensitivity; tune down slightly to avoid over-triggering sadness.
+        sadness_focus_multiplier: float = 1.25,
+        # v2: trigger/support thresholds (tuned to reduce sadness being selected too often).
+        sadness_threshold: float = 0.42,
+        sadness_high_threshold: float = 0.64,
         # v2: lowered from 3 → 2 (catch depression faster)
         sustained_cycles_required: int = 2,
         support_cooldown_seconds: float = 18.0,
@@ -341,10 +341,11 @@ class EmotionFusionEngine:
 
         # ── v2 fix 6: joy suppression gate ───────────────────────────────
         # Problem: joy over-triggers even when sadness is clearly dominant.
-        # Rule: if sadness > 0.40 AND joy < 0.35 → cap joy dynamically.
-        if fused.sadness > 0.40 and fused.joy < 0.35:
+        # Rule: if sadness is elevated AND joy is low → cap joy dynamically.
+        # Slightly higher sadness cutoff reduces how often sadness dominates.
+        if fused.sadness > 0.45 and fused.joy < 0.35:
             # Scale joy down proportionally: the higher sadness, the lower joy cap
-            joy_cap = max(0.05, 0.35 - (fused.sadness - 0.40) * 0.60)
+            joy_cap = max(0.05, 0.35 - (fused.sadness - 0.45) * 0.60)
             if fused.joy > joy_cap:
                 logger.debug(
                     f"Joy gate: capping joy {fused.joy:.3f} → {joy_cap:.3f} "
@@ -376,7 +377,7 @@ class EmotionFusionEngine:
     ) -> SadnessAssessment:
         """
         Evaluate whether the current fused state indicates therapeutic sadness support.
-        v2: uses lowered sadness_threshold (0.40) and sustained_cycles_required (2).
+        Uses tuned sadness_threshold and sustained_cycles_required to decide when to support sadness.
         """
         dominant, dominant_value = self.get_dominant_emotion(fused)
         keyword_hits, crisis = self._extract_keyword_hits(transcript)

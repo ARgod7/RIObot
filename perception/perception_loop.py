@@ -38,6 +38,7 @@ import cv2
 from config import (
     PERCEPTION_LOOP_INTERVAL,
     DETECTOR_CONFIDENCE_THRESHOLD,
+    EMOTION_INPUT_FRAME_INTERVAL,
     WEBCAM_INDEX,
     SHORT_TERM_MEMORY_SIZE,
     FUSED_EMOTION_LOG_INTERVAL,
@@ -339,18 +340,28 @@ class PerceptionLoop:
              # ── 6. Build StimulusObject ──────────────────────────────────
             stimulus_obj = self._fusion.build_stimulus(fused, label="user_emotional_state")
 
+            # Only commit emotion/stimulus outputs every N frames.
+            # (Main.py uses `get_latest_stimulus()` when the user speaks.)
+            should_commit_emotion = (
+                EMOTION_INPUT_FRAME_INTERVAL <= 1
+                or (self._loop_count % EMOTION_INPUT_FRAME_INTERVAL == 0)
+            )
+
              # ── 7. Write results (thread-safe) ───────────────────────────
             with self._lock:
-                 self._latest_fused    = fused
-                 self._latest_stimulus = stimulus_obj
                  self._latest_frame = frame.copy() if frame is not None else None
                  if transcript:
                      self._latest_transcript = transcript
-                 self._stimulus_history.append(stimulus_obj.to_dict())
+
+                if should_commit_emotion:
+                    self._latest_fused = fused
+                    self._latest_stimulus = stimulus_obj
+                    self._stimulus_history.append(stimulus_obj.to_dict())
 
              # Update module-level stimulus reference
             global _latest_stimulus
-            _latest_stimulus = stimulus_obj
+            if should_commit_emotion:
+                _latest_stimulus = stimulus_obj
             global _latest_perception_debug
             _latest_perception_debug = {
                  "sources": self._fusion.status(),

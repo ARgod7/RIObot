@@ -55,6 +55,10 @@ PERCEPTION_FPS: int = int(os.getenv("PERCEPTION_FPS", "8"))  # lower = calmer UI
 PERCEPTION_LOOP_INTERVAL: float = 1.0 / PERCEPTION_FPS
 DETECTOR_CONFIDENCE_THRESHOLD: float = 0.4
 
+# Only update the emotion stimulus seen by the LLM/engine every N perception frames.
+# This reduces frame-to-frame noise (e.g. flickering sadness).
+EMOTION_INPUT_FRAME_INTERVAL: int = int(os.getenv("EMOTION_INPUT_FRAME_INTERVAL", "30"))
+
 # Face detector sampling (seconds between fresh face emotion reads)
 FACE_SAMPLE_INTERVAL_S: float = float(os.getenv("FACE_SAMPLE_INTERVAL_S", "5"))
 
