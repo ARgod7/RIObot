@@ -90,6 +90,8 @@ class VoiceEmotionDetector:
         self._sr_available = False
         self._transformer_available = False
         self._emotion_pipeline = None
+        self._mic_names = []
+        self._mic_index = None
 
         self._init_speech_recognition()
         if use_transformer:
@@ -107,10 +109,26 @@ class VoiceEmotionDetector:
 
             # Test microphone availability
             try:
-                mics = sr.Microphone.list_microphone_names()
-                logger.info(f"Available microphones: {mics}")
+                self._mic_names = sr.Microphone.list_microphone_names()
+                if self._mic_names:
+                    indexed = ", ".join(f"{i}:{name}" for i, name in enumerate(self._mic_names))
+                    logger.info(f"Available microphones: {indexed}")
+                else:
+                    logger.info("No microphones reported by SpeechRecognition.")
             except Exception as e:
                 logger.warning(f"Could not list microphones: {e}")
+
+            # Validate MIC_INDEX against available devices
+            if self._mic_names and 0 <= MIC_INDEX < len(self._mic_names):
+                self._mic_index = MIC_INDEX
+            else:
+                self._mic_index = None
+                if self._mic_names:
+                    logger.warning(
+                        "MIC_INDEX %s is invalid for %s devices; falling back to default microphone.",
+                        MIC_INDEX,
+                        len(self._mic_names),
+                    )
 
         except ImportError:
             logger.warning("SpeechRecognition not installed. Run: pip install SpeechRecognition pyaudio")
@@ -275,7 +293,12 @@ class VoiceEmotionDetector:
         sr = self._sr
 
         try:
-            mic = sr.Microphone(device_index=MIC_INDEX)
+            if self._mic_index is not None:
+                mic = sr.Microphone(device_index=self._mic_index)
+                logger.info("Using microphone index %s", self._mic_index)
+            else:
+                mic = sr.Microphone()
+                logger.info("Using default microphone device")
         except Exception as e:
             logger.error(f"Microphone not available: {e}")
             logger.error("Check: Windows Settings → Privacy & Security → Microphone")

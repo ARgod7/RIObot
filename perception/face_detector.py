@@ -5,7 +5,20 @@ face_detector.py (v3 — calibrated, no DeepFace, no TensorFlow)
 import cv2
 import logging
 import math
+import time
+import sys
+from pathlib import Path
+
+# Allow running this file directly (adds project root to sys.path)
+if __name__ == "__main__":
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from perception.emotion_fusion import EmotionVector
+
+try:
+    from config import FACE_SAMPLE_INTERVAL_S
+except Exception:
+    FACE_SAMPLE_INTERVAL_S = 5.0
 
 logger = logging.getLogger("FaceDetector")
 
@@ -30,6 +43,9 @@ class FaceEmotionDetector:
         self._calibration_frames = []
         self._calibrated = False
         self._calibration_target = 30
+
+        self._sample_interval_s = float(FACE_SAMPLE_INTERVAL_S)
+        self._last_sample_ts = 0.0
 
         self._init_camera()
         self._init_mediapipe()
@@ -153,7 +169,9 @@ class FaceEmotionDetector:
         
         # JOY: smile + eye involvement (slightly squinted cheeks raised)
         # Key: mouth curve positive + squint + relaxed
-        v.joy = smile_gate * 0.90 + max(0.0, squint - 0.35) * 0.06 + relaxed * 0.04
+        # When there's genuine smile, squinted eyes are part of Duchenne smile (genuine), not anger
+        eye_crinkle_bonus = max(0.0, squint - 0.35) * 0.08  # Increased from 0.06 to reward Duchenne smile
+        v.joy = smile_gate * 0.92 + eye_crinkle_bonus + relaxed * 0.04
         if smile_gate < 0.10:
             v.joy *= 0.22
 
@@ -173,11 +191,39 @@ class FaceEmotionDetector:
         
         # ANGER: tension + narrowed brows + tight mouth
         # Key: brows down + together + squint + tense
-        v.anger = brow_low * 0.40 + (furrow * squint) * 0.35 + (1.0 - open_mouth) * 0.25
+        # Suppress anger when there's genuine smile evidence (to avoid false anger during smiling)
+        anger_base = brow_low * 0.40 + (furrow * squint) * 0.35 + (1.0 - open_mouth) * 0.25
+        v.anger = max(0.0, anger_base - smile_gate * 0.3)  # Reduce by 30% of smile strength
         
         # DISGUST: nose wrinkled effect + upper lip raised (mouth corners down + frown) + narrowed brows
         # Key: frown + brow lowered + eye narrowing
-        v.disgust = frown_strength * 0.40 + brow_low * 0.30 + squint * 0.30
+        # Suppress disgust when there's genuine smile (to avoid false disgust during smiling)
+        disgust_base = frown_strength * 0.40 + brow_low * 0.30 + squint * 0.30
+        v.disgust = max(0.0, disgust_base - smile_gate * 0.2)  # Reduce by 20% of smile strength
+
+        # If smile is clearly present, force happiness dominance
+        if smile_gate >= 0.18:
+            v.joy = max(v.joy, 0.65 + min(0.35, smile_gate))
+            v.sadness *= 0.25
+            v.fear *= 0.25
+            v.disgust *= 0.25
+            v.surprise *= 0.25
+            v.anger = 0.0
+
+        # Elderly care focus: prefer joy/sadness, treat ambiguous negatives as sadness
+        if smile_gate < 0.10:
+            v.sadness = max(v.sadness, 0.12 + frown_strength * 0.45)
+
+        if not (furrow >= 0.35 and squint >= 0.35 and brow_low >= 0.25):
+            v.anger = 0.0
+
+        other_negative = max(v.fear, v.disgust, v.surprise)
+        if other_negative > 0.05:
+            transfer = other_negative * 0.60
+            v.sadness = min(1.0, v.sadness + transfer)
+            v.fear *= 0.25
+            v.disgust *= 0.25
+            v.surprise *= 0.25
 
         # If face is overall negative and smile evidence is weak, suppress false-positive joy.
         negative_load = max(v.sadness, v.fear, v.anger, v.disgust)
@@ -213,6 +259,11 @@ class FaceEmotionDetector:
         if not self._available:
             return EmotionVector(confidence=0.0, source="face_unavailable")
 
+        if self._calibrated and self._last_vector and self._sample_interval_s > 0:
+            now = time.time()
+            if (now - self._last_sample_ts) < self._sample_interval_s:
+                return self._last_vector
+
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         rgb.flags.writeable = False
         try:
@@ -223,6 +274,8 @@ class FaceEmotionDetector:
             lm = results.multi_face_landmarks[0].landmark
             vector = self._features_to_emotion(lm)
             self._last_vector = vector
+            if self._calibrated:
+                self._last_sample_ts = time.time()
             return vector
         except Exception as e:
             logger.warning(f"FaceMesh error: {e}")

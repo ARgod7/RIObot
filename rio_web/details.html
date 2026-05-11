@@ -312,7 +312,7 @@
 </div>
 
 <script>
-const WS_URL = "ws://localhost:8765";
+const WS_URL = `ws://localhost:8765`;
 const EMOTIONS = ["joy","sadness","fear","anger","disgust","surprise"];
 
 let ws = null;
@@ -323,7 +323,7 @@ function connect() {
 
   ws.onopen = () => {
     document.getElementById("wsDot").className = "dot on";
-    document.getElementById("wsLabel").textContent = "connected — ws://localhost:8765";
+    document.getElementById("wsLabel").textContent = `connected — ws://localhost:8765`;
   };
 
   ws.onclose = () => {

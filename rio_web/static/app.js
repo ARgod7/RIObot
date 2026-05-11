@@ -1,8 +1,8 @@
 // app.js — RIO frontend logic for port 8000
-// Connects to Python WebSocket on ws://localhost:8765
+// Connects to Python WebSocket on ws://<current-host>:8765
 // Handles: transcript display, RIO response, audio playback, mic status
 
-const WS_URL = "ws://localhost:8765";
+const WS_URL = `ws://${window.location.hostname}:8765`;
 const RECONNECT_DELAY = 3000;
 
 let ws = null;

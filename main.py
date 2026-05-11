@@ -4,6 +4,7 @@ RIO Main Loop — Perception → Engine → Dialogue → TTS → Animation.
 Orchestrates the full emotionally intelligent robot companion system.
 """
 
+import json
 import subprocess
 import threading
 import time
@@ -41,16 +42,26 @@ from perception.perception_loop import (
     get_latest_perception_debug,
 )
 from rio_bridge.ws_server import get_latest_transcript, start_ws_server
-from memory.short_term_memory import get_summary, add_entry
+from memory.short_term_memory import get_summary, add_entry, hydrate_memory_from_file
 from cognition.orchestration.pipeline_manager import run_pipeline
+from cognition.agents.servo_agent import stop_alive_animation, close_serial
 from rio_bridge.rio_client import call_rio_engine, send_expression, send_audio_to_browser
 from tts.gtts_wrapper import speak
 from rio_bridge.ws_server import send_response_to_browser
+from config import EMOTION_WS_BROADCAST_MIN_S
 
 
 def has_hindi(text: str) -> bool:
     """Check if text contains Hindi/Devanagari characters."""
     return any('\u0900' <= char <= '\u097f' for char in text)
+
+
+_EKMAN_KEYS = ("joy", "sadness", "fear", "disgust", "anger", "surprise")
+
+
+def _neutral_emotions() -> dict:
+    """Six-way neutral vector for placeholders (details UI only counts Ekman keys)."""
+    return {k: 0.0 for k in _EKMAN_KEYS}
 
 
 def _vector_payload(source_status: dict, fallback: dict | None = None) -> dict:
@@ -66,6 +77,43 @@ def _vector_payload(source_status: dict, fallback: dict | None = None) -> dict:
     if "confidence" not in payload:
         payload["confidence"] = 0.0
     return payload
+
+
+def _broadcast_live_perception(
+    stimulus_dict: dict,
+    perception_debug: dict,
+    *,
+    fused_confidence: float,
+) -> None:
+    """Push fused + source vectors to browser /details (must run even when idle)."""
+    source_status = perception_debug.get("sources", {})
+    emotion_dynamics = perception_debug.get("emotion_dynamics", {})
+    send_emotion_update({
+        "face": _vector_payload(source_status.get("face", {})),
+        "posture": _vector_payload(source_status.get("posture", {})),
+        "voice": _vector_payload(source_status.get("voice", {})),
+        "fused": _vector_payload(
+            {"emotions": stimulus_dict.get("emotions", {}), "confidence": fused_confidence},
+            fallback=stimulus_dict.get("emotions", {}),
+        ),
+        "raw_emotions": emotion_dynamics.get("raw_fused", {}),
+        "smoothed_emotions": emotion_dynamics.get("smoothed_fused", {}),
+        "camera": perception_debug.get("camera", {}),
+        "voice_status": perception_debug.get("voice", {}),
+        "loop": perception_debug.get("loop", {}),
+        "emotion_dynamics": {
+            "update_count": emotion_dynamics.get("update_count", 0),
+            "significant_changes": emotion_dynamics.get("significant_changes", 0),
+            "fps": emotion_dynamics.get("fps", 0),
+        },
+        "stimulus_meta": {
+            "label": stimulus_dict.get("label"),
+            "trust": stimulus_dict.get("trust"),
+            "likeness": stimulus_dict.get("likeness"),
+            "timesOccurred": stimulus_dict.get("timesOccurred"),
+            "timestamp": stimulus_dict.get("timestamp"),
+        },
+    })
 
 
 def start_web_server(port: int = 8000):
@@ -114,6 +162,8 @@ def start_web_server(port: int = 8000):
     t.start()
     logger.info(f"Web server started on http://localhost:{port}")
     return t
+
+
 def main():
     """
     Main loop: Perception → RIO Engine → Dialogue → TTS → Animation.
@@ -173,6 +223,8 @@ def main():
         # Step 2: Start perception in background thread
         # ============================================================
         # ============================================================
+        hydrate_memory_from_file()
+
         logger.info("Starting perception loop...")
         perception_thread = threading.Thread(
             target=run_perception,
@@ -190,60 +242,60 @@ def main():
         start_ws_server()
         time.sleep(1)  # Wait for WebSocket server to boot
 
+
         # ============================================================
         # Step 3: Main loop
         # ============================================================
         logger.info("Entering main loop...")
         tick_count = 0
+        last_emotion_ws_ts = 0.0
 
         while not stop_event.is_set():
             tick_count += 1
 
             try:
-                # Step 3a: Get latest stimulus
+                user_transcript = (get_latest_transcript() or "").strip()
+
+                # Always publish live perception → /details WebSocket (not only after transcript).
                 stimulus = get_latest_stimulus()
                 if stimulus is None:
-                    logger.debug("No stimulus available, skipping tick")
-                    time.sleep(2)
-                    continue
-
-                stimulus_dict = stimulus if isinstance(stimulus, dict) else stimulus.to_dict()
+                    stimulus_dict = {
+                        "label": "neutral",
+                        "emotions": _neutral_emotions(),
+                        "trust": 0.0,
+                        "likeness": 0.0,
+                        "timesOccurred": 0,
+                        "timestamp": time.time(),
+                    }
+                else:
+                    stimulus_dict = stimulus if isinstance(stimulus, dict) else stimulus.to_dict()
 
                 perception_debug = get_latest_perception_debug() or {}
-                source_status = perception_debug.get("sources", {})
-                send_emotion_update({
-                    "face": _vector_payload(source_status.get("face", {})),
-                    "posture": _vector_payload(source_status.get("posture", {})),
-                    "voice": _vector_payload(source_status.get("voice", {})),
-                    "fused": _vector_payload(
-                        {"emotions": stimulus_dict.get("emotions", {}), "confidence": 1.0},
-                        fallback=stimulus_dict.get("emotions", {}),
-                    ),
-                    "camera": perception_debug.get("camera", {}),
-                    "voice_status": perception_debug.get("voice", {}),
-                    "loop": perception_debug.get("loop", {}),
-                    "stimulus_meta": {
-                        "label": stimulus_dict.get("label"),
-                        "trust": stimulus_dict.get("trust"),
-                        "likeness": stimulus_dict.get("likeness"),
-                        "timesOccurred": stimulus_dict.get("timesOccurred"),
-                        "timestamp": stimulus_dict.get("timestamp"),
-                    },
-                })
+                now_ts = time.time()
+                if user_transcript or (
+                    now_ts - last_emotion_ws_ts >= EMOTION_WS_BROADCAST_MIN_S
+                ):
+                    _broadcast_live_perception(
+                        stimulus_dict,
+                        perception_debug,
+                        fused_confidence=1.0 if stimulus is not None else 0.0,
+                    )
+                    last_emotion_ws_ts = now_ts
 
-                # Step 3b: Call Rio engine via rio_client
+                # Skip dialogue pipeline until the user speaks (but emotion UI already updated).
+                if not user_transcript:
+                    logger.debug("[RIO] Waiting for user input...")
+                    if tick_count % 25 == 0:
+                        print("[RIO] Waiting for user input...")
+                    time.sleep(
+                        max(0.02, EMOTION_WS_BROADCAST_MIN_S - (time.time() - now_ts))
+                    )
+                    continue
+
+                # Step 3c: Call Rio engine via rio_client
                 rio_response = call_rio_engine(stimulus_dict)
                 intervention_intent = rio_response.get("intervention_intent", "validation")
                 emotion_before = stimulus_dict.get("emotions", {})
-                # Step 3c: Get user transcript
-                user_transcript = get_latest_transcript() or ""
-
-                # Skip pipeline if no actual user input
-                if not user_transcript or not user_transcript.strip():
-                    logger.debug("[RIO] Waiting for user input...")
-                    print("[RIO] Waiting for user input...")
-                    time.sleep(2)
-                    continue
 
                 # Step 3d: Get memory context
                 memory_context = get_summary() or ""
@@ -273,6 +325,9 @@ def main():
                         speed=tts_params.get("speed", 0.95),
                     )
 
+                    # Stop servo alive animation after speech finishes
+                    stop_alive_animation()
+
                     # Step 3f-audio: Play audio in browser
                     response_audio_file = project_root / "rio_js" / "public" / "audio" / Path(audio_url).name if audio_url else project_root / "rio_js" / "public" / "audio" / "response.mp3"
                     if not response_audio_file.exists():
@@ -291,10 +346,15 @@ def main():
                 send_expression(expression_intent)
 
                 # Step 3h: Save to short-term memory
+                _intent = intervention_intent
+                if isinstance(_intent, dict):
+                    _intent = json.dumps(_intent)
                 add_entry(
                     user_transcript=user_transcript,
                     response_text=response_text,
                     expression_intent=expression_intent,
+                    intervention_intent=str(_intent),
+                    emotion_before=emotion_before,
                 )
 
                 # Step 3i: Debug print
@@ -317,6 +377,10 @@ def main():
         # Cleanup
         # ============================================================
         logger.info("Cleaning up...")
+
+        # Stop servo animation and close serial port
+        stop_alive_animation()
+        close_serial()
 
         # Signal perception thread to stop
         stop_event.set()

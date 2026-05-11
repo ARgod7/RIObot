@@ -33,6 +33,7 @@ import time
 import logging
 import threading
 from collections import deque
+import cv2
 
 from config import (
     PERCEPTION_LOOP_INTERVAL,
@@ -41,6 +42,8 @@ from config import (
     SHORT_TERM_MEMORY_SIZE,
     FUSED_EMOTION_LOG_INTERVAL,
     FUSED_EMOTION_LOG_ENABLED,
+    ENABLE_VOICE_DETECTOR,
+    FUSION_SMOOTH_ALPHA,
 )
 from perception.emotion_fusion import EmotionFusionEngine, EmotionVector
 
@@ -92,7 +95,7 @@ class PerceptionLoop:
         self,
         camera_index: int = WEBCAM_INDEX,
         loop_interval: float = PERCEPTION_LOOP_INTERVAL,
-        enable_voice: bool = True,
+        enable_voice: bool = ENABLE_VOICE_DETECTOR,
         enable_face: bool = True,
         enable_posture: bool = True,
     ):
@@ -139,6 +142,64 @@ class PerceptionLoop:
         self._last_voice_ts = 0.0
         self._last_fused_log_ts = 0.0
         self._last_frame_ts = 0.0
+
+        # Real-time emotion tracking (for dynamic updates)
+        self._last_raw_fused = None
+        self._last_smoothed_fused = None
+        self._emotion_update_count = 0
+        self._significant_change_count = 0
+
+        # Show camera feed (OpenCV window)
+        self._show_camera = False
+
+    # ── Real-Time Emotion Tracking ─────────────────────────────────────────
+
+    def _track_emotion_changes(self, fused: EmotionVector, smoothed: EmotionVector) -> dict:
+        """Track and detect significant emotion changes for real-time responsiveness."""
+        self._emotion_update_count += 1
+
+        # Calculate velocity (rate of change) from previous reading
+        change_info = {
+            "raw_velocity": 0.0,
+            "smoothed_velocity": 0.0,
+            "dominant_emotion": None,
+            "dominant_value": 0.0,
+            "changed_significantly": False,
+            "rapid_shift": False
+        }
+
+        if self._last_raw_fused is not None:
+            # Calculate maximum change across all emotions (velocity)
+            raw_emotions = fused.to_dict()
+            last_raw_emotions = self._last_raw_fused.to_dict()
+
+            raw_velocity = max(
+                abs(raw_emotions[e] - last_raw_emotions[e])
+                for e in raw_emotions.keys()
+            )
+            change_info["raw_velocity"] = raw_velocity
+
+            # Detect significant changes (threshold > 0.1)
+            if raw_velocity > 0.10:
+                change_info["changed_significantly"] = True
+                self._significant_change_count += 1
+
+            # Detect rapid shifts (very fast changes > 0.2)
+            if raw_velocity > 0.20:
+                change_info["rapid_shift"] = True
+
+        # Get dominant emotion
+        if fused.confidence > 0.0:
+            emotions = fused.to_dict()
+            dominant_emotion = max(emotions.items(), key=lambda x: x[1])
+            change_info["dominant_emotion"] = dominant_emotion[0]
+            change_info["dominant_value"] = dominant_emotion[1]
+
+        # Store for next comparison
+        self._last_raw_fused = EmotionVector(**fused.to_dict(), confidence=fused.confidence, source=fused.source)
+        self._last_smoothed_fused = EmotionVector(**smoothed.to_dict(), confidence=smoothed.confidence, source=smoothed.source)
+
+        return change_info
 
     # ── Detector Initialisation ─────────────────────────────────────────────
 
@@ -238,62 +299,66 @@ class PerceptionLoop:
                 except Exception as e:
                     logger.debug(f"Posture detect error: {e}")
 
+            # # ── 3b. Optional camera preview ───────────────────────────────
+            if self._show_camera and frame is not None:
+                cv2.imshow("Perception Camera", frame)
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    self._stop_event.set()
+
             # ── 4. Voice (non-blocking poll) ─────────────────────────────
             if self._voice_detector:
                 try:
                     voice_vector = self._voice_detector.get_latest()
                     transcript   = self._voice_detector.get_transcript()
                     if voice_vector.confidence >= DETECTOR_CONFIDENCE_THRESHOLD:
-                        self._fusion.update("voice", voice_vector)
-                        self._last_voice_ts = time.time()
+                         self._fusion.update("voice", voice_vector)
+                         self._last_voice_ts = time.time()
                 except Exception as e:
-                    logger.debug(f"Voice poll error: {e}")
+                     logger.debug(f"Voice poll error: {e}")
             else:
                 transcript = ""
 
-            # ── 5. Fuse ──────────────────────────────────────────────────
+             # ── 5. Fuse ──────────────────────────────────────────────────
             try:
-                fused = self._fusion.fuse_smoothed(alpha=0.65)
+                fused = self._fusion.fuse_smoothed(alpha=FUSION_SMOOTH_ALPHA)
             except Exception as e:
-                logger.warning(f"Fusion error: {e}")
-                fused = EmotionVector(source="fused", confidence=0.0)
+                 logger.warning(f"Fusion error: {e}")
+                 fused = EmotionVector(source="fused", confidence=0.0)
+
+            raw_fused = self._fusion.fuse()
+            change_info = self._track_emotion_changes(raw_fused, fused)
 
             if FUSED_EMOTION_LOG_ENABLED:
-                now = time.time()
-                if (now - self._last_fused_log_ts) >= FUSED_EMOTION_LOG_INTERVAL:
-                    emotions = fused.to_dict()
-                    dominant = max(emotions, key=emotions.get) if emotions else "neutral"
-                    logger.info(
-                        "Fused emotion: %s (conf=%.2f)",
-                        dominant,
-                        fused.confidence,
-                    )
-                    self._last_fused_log_ts = now
+                 now = time.time()
+                 if (now - self._last_fused_log_ts) >= FUSED_EMOTION_LOG_INTERVAL:
+                     emotions = fused.to_dict()
+                     dominant = max(emotions, key=emotions.get) if emotions else "neutral"
+                     logger.info("Fused emotion: %s (conf=%.2f)", dominant, fused.confidence)
+                     self._last_fused_log_ts = now
 
-            # ── 6. Build StimulusObject ──────────────────────────────────
-            stimulus_obj = self._fusion.build_stimulus(
-                fused, label="user_emotional_state"
-            )
+             # ── 6. Build StimulusObject ──────────────────────────────────
+            stimulus_obj = self._fusion.build_stimulus(fused, label="user_emotional_state")
 
-            # ── 7. Write results (thread-safe) ───────────────────────────
+             # ── 7. Write results (thread-safe) ───────────────────────────
             with self._lock:
-                self._latest_fused    = fused
-                self._latest_stimulus = stimulus_obj
-                self._latest_frame = frame.copy() if frame is not None else None
-                if transcript:
-                    self._latest_transcript = transcript
-                self._stimulus_history.append(stimulus_obj.to_dict())
+                 self._latest_fused    = fused
+                 self._latest_stimulus = stimulus_obj
+                 self._latest_frame = frame.copy() if frame is not None else None
+                 if transcript:
+                     self._latest_transcript = transcript
+                 self._stimulus_history.append(stimulus_obj.to_dict())
 
-            # Update module-level stimulus reference
+             # Update module-level stimulus reference
             global _latest_stimulus
             _latest_stimulus = stimulus_obj
             global _latest_perception_debug
             _latest_perception_debug = {
-                "sources": self._fusion.status(),
-                "camera": self.get_camera_health(),
-                "voice": self.get_voice_status(),
-                "loop": self.get_loop_stats(),
-                "transcript": self._latest_transcript,
+                 "sources": self._fusion.status(),
+                 "camera": self.get_camera_health(),
+                 "voice": self.get_voice_status(),
+                 "loop": self.get_loop_stats(),
+                 "emotion_dynamics": self.get_emotion_dynamics(),
+                 "transcript": self._latest_transcript,
             }
 
             self._loop_count += 1
@@ -305,6 +370,7 @@ class PerceptionLoop:
             self._stop_event.wait(timeout=sleep_for)
 
         self._release_detectors()
+        cv2.destroyAllWindows()
         logger.info(f"Perception loop stopped after {self._loop_count} cycles.")
 
     # ── Public API ──────────────────────────────────────────────────────────
@@ -412,13 +478,23 @@ class PerceptionLoop:
         }
 
     def get_voice_status(self) -> dict:
-        """Return voice detector availability and listening status."""
-        if not self._voice_detector:
-            return {"available": False, "listening": False}
-        return {
-            "available": self._voice_detector.is_available(),
-            "listening": self._voice_detector.is_listening(),
+         """Return voice detector availability and listening status."""
+         if not self._voice_detector:
+             return {"available": False, "listening": False}
+         return {
+             "available": self._voice_detector.is_available(),
+             "listening": self._voice_detector.is_listening(),
         }
+
+    def get_emotion_dynamics(self) -> dict:
+         """Return real-time emotion change metrics for UI display."""
+         return {
+             "update_count": self._emotion_update_count,
+             "significant_changes": self._significant_change_count,
+             "fps": 1.0 / self.loop_interval if self.loop_interval > 0 else 0,
+             "raw_fused": self._last_raw_fused.to_dict() if self._last_raw_fused else {},
+             "smoothed_fused": self._last_smoothed_fused.to_dict() if self._last_smoothed_fused else {},
+         }
 
 
 # ─── Quick Test ─────────────────────────────────────────────────────────────

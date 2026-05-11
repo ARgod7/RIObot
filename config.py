@@ -15,7 +15,7 @@ GEMINI_MODEL: str = "gemini-2.5-flash"
 # ============================================================
 # LLM PROVIDER TOGGLE (Easy switch between Groq, Gemini, Ollama)
 # ============================================================
-LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")  # "groq" | "gemini" | "ollama"
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq")  # "groq" | "gemini" | "ollama"
 
 # Groq API (FREE - Fast, Cloud) - uncomment if available
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
@@ -49,14 +49,24 @@ LOG_LEVEL: str = os.getenv("LOG_LEVEL", "WARNING")
 FUSED_EMOTION_LOG_INTERVAL: float = float(os.getenv("FUSED_EMOTION_LOG_INTERVAL", "5"))
 FUSED_EMOTION_LOG_ENABLED: bool = os.getenv("FUSED_EMOTION_LOG_ENABLED", "true").lower() == "true"
 
-PERCEPTION_FPS: int = 10
+PERCEPTION_FPS: int = int(os.getenv("PERCEPTION_FPS", "8"))  # lower = calmer UI, less CPU
 
 # Perception loop
-PERCEPTION_LOOP_INTERVAL: float = 1.0 / PERCEPTION_FPS   # ~0.1s @ 10fps
+PERCEPTION_LOOP_INTERVAL: float = 1.0 / PERCEPTION_FPS
 DETECTOR_CONFIDENCE_THRESHOLD: float = 0.4
+
+# Face detector sampling (seconds between fresh face emotion reads)
+FACE_SAMPLE_INTERVAL_S: float = float(os.getenv("FACE_SAMPLE_INTERVAL_S", "5"))
+
+# Fusion smoothing: lower alpha = smoother, slower-moving fused vector (see EmotionFusionEngine.fuse_smoothed)
+FUSION_SMOOTH_ALPHA: float = float(os.getenv("FUSION_SMOOTH_ALPHA", "0.28"))
+
+# Min seconds between emotion WebSocket pushes from main.py (details dashboard)
+EMOTION_WS_BROADCAST_MIN_S: float = float(os.getenv("EMOTION_WS_BROADCAST_MIN_S", "0.15"))
 WEBCAM_INDEX: int = 0
-MIC_INDEX: int = 1  # "Microphone (C-Media(R) Audio)" — the physical mic
-SHORT_TERM_MEMORY_SIZE: int = 7
+MIC_INDEX: int = int(os.getenv("MIC_INDEX", "0"))  # Auto-detect default microphone. Set MIC_INDEX=1 if you have multiple mics
+ENABLE_VOICE_DETECTOR: bool = os.getenv("ENABLE_VOICE_DETECTOR", "true").lower() == "true"
+SHORT_TERM_MEMORY_SIZE: int = int(os.getenv("SHORT_TERM_MEMORY_SIZE", "10"))
 
 STAGNATION_THRESHOLD: float = 0.05
 STAGNATION_REROUTE_AFTER: int = 3

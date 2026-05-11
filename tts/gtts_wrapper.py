@@ -318,25 +318,90 @@ def tts_clear_cache():
     _engine.clear_cache()
 
 
+def _ffmpeg_bin() -> Optional[str]:
+    return shutil.which("ffmpeg")
+
+
+def _ffmpeg_supports_rubberband(ffmpeg_exe: str) -> bool:
+    try:
+        r = subprocess.run(
+            [ffmpeg_exe, "-hide_banner", "-h", "filter=rubberband"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return r.returncode == 0 and "rubberband" in (r.stdout or "").lower()
+    except Exception:
+        return False
+
+
+def _apply_prosody(src: Path, dst: Path, pitch: float, speed: float) -> bool:
+    """
+    Adjust pitch/speed on MP3 via ffmpeg. Prefers rubberband for independent control.
+    Falls back to atempo + small pitch→tempo nudge if rubberband is unavailable.
+    """
+    ffmpeg_exe = _ffmpeg_bin()
+    if not ffmpeg_exe or not src.exists():
+        return False
+
+    pitch = max(0.78, min(1.32, float(pitch)))
+    speed = max(0.82, min(1.12, float(speed)))
+
+    def _chain_atempo(factor: float) -> str:
+        """atempo must stay in (0.5, 2.0); chain filters if needed."""
+        parts = []
+        remaining = factor
+        while remaining < 0.5:
+            parts.append("atempo=0.5")
+            remaining /= 0.5
+        while remaining > 2.0:
+            parts.append("atempo=2.0")
+            remaining /= 2.0
+        parts.append(f"atempo={remaining:.6f}")
+        return ",".join(parts)
+
+    try:
+        if _ffmpeg_supports_rubberband(ffmpeg_exe):
+            # libavfilter rubberband: pitch and tempo are scale factors (1.0 = unchanged)
+            filt = f"rubberband=pitch={pitch:.5f}:tempo={speed:.6f}:pitchq=quality"
+        else:
+            # Without rubberband: primary control is speed; nudge tempo from pitch (lower pitch → slightly slower)
+            combined = speed * (1.0 + (1.0 - pitch) * 0.45)
+            combined = max(0.82, min(1.12, combined))
+            filt = _chain_atempo(combined)
+
+        cmd = [
+            ffmpeg_exe,
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(src),
+            "-af",
+            filt,
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "4",
+            str(dst),
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            logger.warning("ffmpeg prosody failed: %s", (r.stderr or r.stdout or "")[:200])
+            return False
+        return dst.exists() and dst.stat().st_size > 0
+    except Exception as e:
+        logger.warning("ffmpeg prosody error: %s", e)
+        return False
+
+
 def speak(text: str, lang: str = "en", pitch: float = 1.0, speed: float = 1.0) -> str:
     """
-    Speak text using gTTS with language and basic pitch/speed parameters.
+    Speak text using gTTS, then optional ffmpeg prosody (pitch/speed) for browser playback.
 
-    Saves audio to rio_js/public/audio/response.mp3 for browser playback.
-    Does NOT play audio locally - browser handles playback via Node.js server.
-
-    Note: gTTS does not natively support pitch/speed adjustment,
-    so these parameters are informational for future audio processing.
-
-    Args:
-        text: Text to speak.
-        lang: Language code ("en", "hi", etc.).
-        pitch: Pitch adjustment (0.8 low to 1.3 high) — informational.
-        speed: Speed adjustment (0.85 slow to 1.1 fast) — informational.
-
-    Returns:
-        Relative browser audio path (e.g., "/audio/response_123.mp3") on success,
-        or empty string on failure.
+    Saves audio under rio_js/public/audio/. Requires ffmpeg on PATH for prosody;
+    if missing or processing fails, falls back to raw gTTS MP3.
     """
     if not text or not text.strip():
         return ""
@@ -347,7 +412,6 @@ def speak(text: str, lang: str = "en", pitch: float = 1.0, speed: float = 1.0) -
 
     success, audio_file = tts_generate(text, lang=lang)
     if success and audio_file:
-        # Copy to rio_js/public/audio/response.mp3 for browser playback
         try:
             project_root = Path(__file__).parent.parent  # rio/
             audio_dir = project_root / "rio_js" / "public" / "audio"
@@ -356,10 +420,20 @@ def speak(text: str, lang: str = "en", pitch: float = 1.0, speed: float = 1.0) -
             timestamp = int(time.time() * 1000)
             response_file = audio_dir / f"response_{timestamp}.mp3"
             latest_file = audio_dir / "response.mp3"
+            src_path = Path(audio_file)
+            tmp_proc = audio_dir / f"_proc_{timestamp}.mp3"
 
-            # Copy cached MP3 to public audio directory
-            shutil.copy2(audio_file, response_file)
-            shutil.copy2(audio_file, latest_file)
+            use_raw = abs(pitch - 1.0) < 0.02 and abs(speed - 1.0) < 0.02
+            if use_raw:
+                shutil.copy2(src_path, response_file)
+            elif _apply_prosody(src_path, tmp_proc, pitch, speed):
+                shutil.move(str(tmp_proc), str(response_file))
+            else:
+                shutil.copy2(src_path, response_file)
+                if not use_raw:
+                    logger.info("Prosody skipped (no ffmpeg or filter failed); using raw TTS")
+
+            shutil.copy2(response_file, latest_file)
 
             logger.info(f"✓ Audio saved to browser: {response_file}")
             return f"/audio/{response_file.name}"

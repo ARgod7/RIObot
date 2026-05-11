@@ -22,6 +22,7 @@ import logging
 import queue
 import threading
 from pathlib import Path
+import numpy as np
 
 import websockets
 
@@ -116,22 +117,22 @@ async def _handle_message(websocket, msg: dict):
             }))
 
     elif msg_type == "audio":
-        # Raw audio bytes for voice emotion detection
+        # Raw PCM16 audio bytes for voice emotion detection
         try:
             audio_bytes = base64.b64decode(msg.get("data", ""))
-            _feed_audio_to_voice_detector(audio_bytes)
+            sample_rate = int(msg.get("sampleRate", 16000))
+            _feed_audio_to_voice_detector(audio_bytes, sample_rate)
         except Exception as e:
             logger.warning(f"[WS] Audio decode error: {e}")
 
 
-def _feed_audio_to_voice_detector(audio_bytes: bytes):
-    """Pass audio to voice_detector if it supports feed_audio_chunk."""
+def _feed_audio_to_voice_detector(audio_bytes: bytes, sample_rate: int):
+    """Pass PCM16 audio to voice_detector if it supports feed_audio_chunk."""
     try:
-        from perception.voice_detector import VoiceEmotionDetector
-        # Only feed if the detector has this method (added in Day 1)
         detector = _get_voice_detector()
         if detector and hasattr(detector, "feed_audio_chunk"):
-            detector.feed_audio_chunk(audio_bytes)
+            audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+            detector.feed_audio_chunk(audio_np, sample_rate=sample_rate)
     except Exception as e:
         logger.debug(f"[WS] Voice detector feed skipped: {e}")
 
@@ -140,6 +141,14 @@ _voice_detector_instance = None
 
 def _get_voice_detector():
     global _voice_detector_instance
+    if _voice_detector_instance is None:
+        try:
+            from perception.voice_detector import VoiceEmotionDetector
+            _voice_detector_instance = VoiceEmotionDetector(use_transformer=True)
+            logger.info("[WS] Voice detector created for browser audio feed")
+        except Exception as e:
+            logger.warning(f"[WS] Voice detector init failed: {e}")
+            _voice_detector_instance = None
     return _voice_detector_instance
 
 def set_voice_detector(detector):

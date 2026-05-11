@@ -1,5 +1,15 @@
 """
 Pipeline Manager — Orchestrates dialogue, servo, and feedback agents sequentially.
+
+Flow:
+  1. DIALOGUE AGENT: Generates response & emotion/expression intent based on stimulus
+  2. SERVO AGENT: Applies emotion-specific servo poses from servo_controls/poses.json
+                  Uses smooth transitions and alive animation while TTS speaks
+  3. FEEDBACK AGENT: Assesses intervention effectiveness
+
+The servo positions are dynamically applied based on the expression_intent (emotion)
+chosen by the dialogue agent, creating embodied emotional responses synchronized
+with the robot's speech.
 """
 
 import logging
@@ -10,6 +20,30 @@ from cognition.agents.servo_agent import run_servo
 from cognition.agents.feedback_agent import run_feedback
 
 logger = logging.getLogger(__name__)
+
+
+def merge_tts_for_therapist(expression_intent: str, tts: Dict[str, Any]) -> Dict[str, float]:
+    """
+    Blend LLM TTS hints with therapist-style baselines per facial expression.
+    Sad: softer, slower. Anger: firm and measured (not loud/fast). Calm: steady, slightly slow.
+    """
+    ex = (expression_intent or "calm").lower()
+    baselines = {
+        "sadness": {"pitch": 0.86, "speed": 0.84},
+        "anger": {"pitch": 0.90, "speed": 0.86},
+        "fear": {"pitch": 0.93, "speed": 0.88},
+        "joy": {"pitch": 1.05, "speed": 0.98},
+        "surprise": {"pitch": 1.04, "speed": 0.95},
+        "calm": {"pitch": 0.98, "speed": 0.90},
+    }
+    base = baselines.get(ex, baselines["calm"])
+    lp = float(tts.get("pitch", base["pitch"]))
+    ls = float(tts.get("speed", base["speed"]))
+    p = 0.55 * base["pitch"] + 0.45 * lp
+    s = 0.55 * base["speed"] + 0.45 * ls
+    p = max(0.78, min(1.32, p))
+    s = max(0.82, min(1.12, s))
+    return {"pitch": p, "speed": s}
 
 
 def run_pipeline(
@@ -53,16 +87,23 @@ def run_pipeline(
             "tts_params": {"pitch": 1.0, "speed": 0.95},
         }
 
-    # Step 2: Run servo agent (stub)
+    dialogue_output["tts_params"] = merge_tts_for_therapist(
+        dialogue_output.get("expression_intent", "calm"),
+        dialogue_output.get("tts_params") or {},
+    )
+
+    # Step 2: Run servo agent with emotion-based positions
     try:
+        # expression_intent is the emotion from the dialogue agent
         servo_output = run_servo(
-            dialogue_output["expression_intent"],
-            stimulus.get("emotions", {}),
+            emotion=dialogue_output["expression_intent"],
+            speaking=True,  # Robot is about to speak, so use alive animation
+            transition=True  # Smooth transition between poses
         )
-        logger.info(f"Servo: {servo_output}")
+        logger.info(f"Servo: {servo_output['action']} → {servo_output['resolved_emotion']}")
     except Exception as e:
         logger.error(f"Servo agent failed: {e}", exc_info=True)
-        servo_output = {"action": "stub", "intent": dialogue_output["expression_intent"]}
+        servo_output = {"action": "error", "emotion": dialogue_output.get("expression_intent", "unknown")}
 
     # Step 3: Run feedback agent
     try:

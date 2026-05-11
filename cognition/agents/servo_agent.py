@@ -1,216 +1,419 @@
 """
-Servo Agent — Serial motor control based on expression intent.
+Servo Agent — RIO Embodied Motion Controller
+Drives all 11 servo joints from poses.json based on emotional state.
+Supports:
+  - LLM/agent-chosen emotion → pose lookup
+  - Micro-movement "alive" animation while speaking
+  - Smooth transitions between poses
+  - Full 11-joint control: head, ears, shoulders, elbows, base
 
-Uses the same packet protocol as test.py/test2.py:
-- 8 servo slots
-- each angle reduced via integer division by 10
-- each reduced value padded to 2 digits
-- concatenated payload sent over serial
+Servo slot mapping (8-slot serial protocol):
+  Slot 0: head horizontal (hh)
+  Slot 1: right shoulder vertical (rsv)
+  Slot 2: left shoulder vertical (lsv)
+  Slot 3: right shoulder horizontal (rsh)
+  Slot 4: left shoulder horizontal (lsh)
+  Slot 5: right elbow (re)
+  Slot 6: left elbow (le)
+  Slot 7: base
+
+  NOTE: hv, lear, rear are stored in poses.json but the current
+  8-slot protocol has no spare slots for them. Set ENABLE_EXTENDED_SERVOS=True
+  below when you upgrade to a 12-slot controller — the builder functions
+  already compute them so no other changes needed.
 """
 
+import json
 import logging
+import math
 import os
+import random
+import threading
 import time
-from typing import Dict, Optional
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 try:
     import serial  # type: ignore
-except ImportError:  # pragma: no cover
+except ImportError:
     serial = None
 
 logger = logging.getLogger(__name__)
 
-_SERIAL_PORT: Optional["serial.Serial"] = None
-
+# ---------------------------------------------------------------------------
+# Configuration — change these to match your setup
+# ---------------------------------------------------------------------------
 SERVO_COM_PORT: int = int(os.getenv("SERVO_COM_PORT", "5"))
 SERVO_BAUD_RATE: int = int(os.getenv("SERVO_BAUD_RATE", "9600"))
 SERVO_TIMEOUT_S: float = float(os.getenv("SERVO_TIMEOUT_S", "1"))
 
+# Path to poses.json — resolved from project root
+POSES_FILE: Path = Path(__file__).parent.parent.parent / "servo_controls" / "poses.json"
 
-def _clamp_angle(angle: int) -> int:
-    """Clamp angle into servo-safe [0, 180] range."""
-    return max(0, min(180, int(angle)))
+# Set True when controller is upgraded to 12 slots (adds hv, lear, rear)
+ENABLE_EXTENDED_SERVOS: bool = False
+
+# Micro-movement config while speaking
+ALIVE_INTERVAL_S: float = 0.8        # how often to nudge joints
+ALIVE_AMPLITUDE: int = 6             # max degrees of random sway
+ALIVE_JOINTS = ["rsv", "lsv", "hh"] # which joints do the alive sway
+
+# Transition step size per tick (smaller = smoother but slower)
+TRANSITION_STEP: int = 4
+TRANSITION_TICK_S: float = 0.04
+
+# Emotion fallback if unknown emotion string is received
+DEFAULT_EMOTION: str = "joy"
+
+# ---------------------------------------------------------------------------
+# Pose library — loaded once at import
+# ---------------------------------------------------------------------------
+
+def _load_poses(path: Path) -> Dict[str, Dict]:
+    """Load and normalise poses.json. Fixes typo 'sadnesss' → 'sadness'."""
+    try:
+        raw = json.loads(path.read_text())
+    except Exception as exc:
+        logger.error("Failed to load poses.json: %s", exc)
+        return {}
+
+    normalised: Dict[str, Dict] = {}
+    for key, variants in raw.items():
+        clean_key = key.strip().lower().rstrip("s") if key == "sadnesss" else key.strip().lower()
+        # Flatten variants dict — take variant "0" or first available
+        variant_data = variants.get("0") or next(iter(variants.values()), {})
+        normalised[clean_key] = {k: int(v) for k, v in variant_data.items()}
+    return normalised
 
 
-def _build_payload(pose: list[int]) -> str:
-    """Build controller payload string from 8-servo pose."""
-    send_data = ""
-    for value in pose:
-        reduced_value = _clamp_angle(value) // 10
-        send_data += f"{reduced_value:02d}"
-    return send_data
+POSES: Dict[str, Dict] = _load_poses(POSES_FILE)
+
+EMOTION_ALIASES: Dict[str, str] = {
+    "happy": "joy",
+    "excited": "joy",
+    "sad": "sadness",
+    "depressed": "sadness",
+    "scared": "fear",
+    "anxious": "fear",
+    "disgusted": "disgust",
+    "angry": "anger",
+    "frustrated": "anger",
+    "surprised": "surprise",
+    "calm": "joy",       # no neutral pose — fall to gentle joy
+    "neutral": "joy",
+}
+
+
+def resolve_emotion(emotion: str) -> str:
+    """Map any emotion string to a key that exists in POSES."""
+    e = emotion.strip().lower()
+    if e in POSES:
+        return e
+    if e in EMOTION_ALIASES and EMOTION_ALIASES[e] in POSES:
+        return EMOTION_ALIASES[e]
+    logger.warning("Unknown emotion '%s', falling back to '%s'", emotion, DEFAULT_EMOTION)
+    return DEFAULT_EMOTION
+
+
+# ---------------------------------------------------------------------------
+# Serial connection
+# ---------------------------------------------------------------------------
+
+_SERIAL_PORT: Optional["serial.Serial"] = None
+_SERIAL_LOCK = threading.Lock()
 
 
 def _get_serial_port() -> Optional["serial.Serial"]:
-    """Get or initialize persistent serial connection."""
     global _SERIAL_PORT
-
     if serial is None:
-        logger.warning("pyserial not installed; servo control disabled")
+        logger.warning("pyserial not installed — servo control disabled")
         return None
+    with _SERIAL_LOCK:
+        if _SERIAL_PORT and _SERIAL_PORT.is_open:
+            return _SERIAL_PORT
+        try:
+            _SERIAL_PORT = serial.Serial(
+                f"COM{SERVO_COM_PORT}", SERVO_BAUD_RATE, timeout=SERVO_TIMEOUT_S
+            )
+            logger.info("Servo serial connected on COM%s", SERVO_COM_PORT)
+            return _SERIAL_PORT
+        except Exception as exc:
+            logger.warning("Failed to open servo serial port: %s", exc)
+            return None
 
-    if _SERIAL_PORT and _SERIAL_PORT.is_open:
-        return _SERIAL_PORT
 
+def close_serial():
+    """Call on shutdown to cleanly close the serial port."""
+    global _SERIAL_PORT
+    with _SERIAL_LOCK:
+        if _SERIAL_PORT and _SERIAL_PORT.is_open:
+            _SERIAL_PORT.close()
+            logger.info("Servo serial port closed")
+
+
+# ---------------------------------------------------------------------------
+# Payload builder
+# ---------------------------------------------------------------------------
+
+# Canonical slot order for the 8-slot protocol
+_SLOT_ORDER_8 = ["hh", "rsv", "lsv", "rsh", "lsh", "re", "le", "base"]
+
+# Extended 12-slot order (future — when hardware supports it)
+_SLOT_ORDER_12 = ["hh", "hv", "lear", "rear", "rsv", "lsv", "rsh", "lsh", "re", "le", "base", "spare"]
+
+
+def _clamp(v: int) -> int:
+    return max(0, min(180, int(v)))
+
+
+def _build_payload(joint_values: Dict[str, int]) -> str:
+    """
+    Build serial payload string.
+    Each slot value is divided by 10, floored, zero-padded to 2 digits.
+    """
+    slot_order = _SLOT_ORDER_12 if ENABLE_EXTENDED_SERVOS else _SLOT_ORDER_8
+    payload = ""
+    for joint in slot_order:
+        raw = joint_values.get(joint, 90)
+        reduced = _clamp(raw) // 10
+        payload += f"{reduced:02d}"
+    return payload
+
+
+def _send_joints(port: "serial.Serial", joint_values: Dict[str, int]) -> bool:
+    payload = _build_payload(joint_values)
     try:
-        _SERIAL_PORT = serial.Serial(
-            f"COM{SERVO_COM_PORT}",
-            SERVO_BAUD_RATE,
-            timeout=SERVO_TIMEOUT_S,
-        )
-        logger.info("Servo serial connected on COM%s", SERVO_COM_PORT)
-        return _SERIAL_PORT
+        with _SERIAL_LOCK:
+            port.write(payload.encode())
+        logger.debug("Sent payload: %s | joints: %s", payload, joint_values)
+        return True
     except Exception as exc:
-        logger.warning("Failed to open servo serial port: %s", exc)
-        return None
+        logger.warning("Serial write failed: %s", exc)
+        return False
 
 
-def _send_pose(
+# ---------------------------------------------------------------------------
+# Transition engine — smoothly interpolate between two poses
+# ---------------------------------------------------------------------------
+
+def _interpolate(start: Dict[str, int], end: Dict[str, int], t: float) -> Dict[str, int]:
+    """Linear interpolation between two joint dicts. t in [0, 1]."""
+    all_keys = set(start) | set(end)
+    return {
+        k: int(start.get(k, 90) + (end.get(k, 90) - start.get(k, 90)) * t)
+        for k in all_keys
+    }
+
+
+def _transition_to(
     port: "serial.Serial",
-    rsv: int = 90,
-    lsv: int = 90,
-    rsh: int = 90,
-    lsh: int = 90,
-    re: int = 90,
-    le: int = 90,
-) -> bool:
+    from_joints: Dict[str, int],
+    to_joints: Dict[str, int],
+    steps: int = 20,
+) -> None:
+    """Smoothly move from one pose to another over `steps` ticks."""
+    for i in range(1, steps + 1):
+        t = i / steps
+        frame = _interpolate(from_joints, to_joints, t)
+        _send_joints(port, frame)
+        time.sleep(TRANSITION_TICK_S)
+
+
+# ---------------------------------------------------------------------------
+# Alive micro-movement — runs in a background thread while speaking
+# ---------------------------------------------------------------------------
+
+_alive_thread: Optional[threading.Thread] = None
+_alive_stop_event = threading.Event()
+_current_pose: Dict[str, int] = {}
+
+
+def _alive_loop(port: "serial.Serial", base_pose: Dict[str, int]) -> None:
     """
-    Send full 8-servo pose using the arm mapping from test2.py.
-
-    Servo slots:
-    - 1: right shoulder vertical (rsv)
-    - 2: left shoulder vertical (lsv)
-    - 3: right shoulder horizontal (rsh)
-    - 4: left shoulder horizontal (lsh)
-    - 5: right elbow (re)
-    - 6: left elbow (le)
+    Holds the emotion pose but adds subtle sinusoidal sway to selected joints
+    so the robot looks alive while speaking.
     """
-    pose = [90] * 8
-    pose[1] = rsv
-    pose[2] = lsv
-    pose[3] = rsh
-    pose[4] = lsh
-    pose[5] = re
-    pose[6] = le
-
-    payload = _build_payload(pose)
-
-    try:
-        port.write(payload.encode())
-        return True
-    except Exception as exc:
-        logger.warning("Servo write failed: %s", exc)
-        return False
+    t = 0.0
+    while not _alive_stop_event.is_set():
+        nudged = dict(base_pose)
+        for i, joint in enumerate(ALIVE_JOINTS):
+            if joint in nudged:
+                # Each joint gets a slightly different phase so they don't all move together
+                phase = i * (math.pi / len(ALIVE_JOINTS))
+                sway = int(ALIVE_AMPLITUDE * math.sin(t * 1.5 + phase))
+                nudged[joint] = _clamp(nudged[joint] + sway)
+        _send_joints(port, nudged)
+        t += ALIVE_INTERVAL_S
+        time.sleep(ALIVE_INTERVAL_S)
 
 
-def _smooth_wave(port: "serial.Serial", cycles: int = 2, delay_s: float = 0.45, amplitude: float = 1.0) -> bool:
-    """Run bilateral arm wave sequence from test2.py style."""
-    try:
-        amp = max(0.3, min(1.0, amplitude))
-        shoulder_up = int(90 + (60 * amp))
-        shoulder_down = int(90 - (60 * amp))
-        elbow_out_r = int(90 - (90 * amp))
-        elbow_out_l = int(90 + (90 * amp))
-
-        ok = _send_pose(
-            port,
-            rsv=shoulder_up,
-            lsv=shoulder_down,
-            rsh=90,
-            lsh=90,
-            re=90,
-            le=90,
-        )
-        if not ok:
-            return False
-        time.sleep(0.6)
-
-        for _ in range(cycles):
-            if not _send_pose(
-                port,
-                rsv=shoulder_up,
-                lsv=shoulder_down,
-                rsh=90,
-                lsh=90,
-                re=elbow_out_r,
-                le=elbow_out_l,
-            ):
-                return False
-            time.sleep(delay_s)
-            if not _send_pose(
-                port,
-                rsv=shoulder_up,
-                lsv=shoulder_down,
-                rsh=90,
-                lsh=90,
-                re=90,
-                le=90,
-            ):
-                return False
-            time.sleep(delay_s)
-
-        _send_pose(port, rsv=90, lsv=90, rsh=90, lsh=90, re=90, le=90)
-        return True
-    except Exception as exc:
-        logger.warning("Wave action failed: %s", exc)
-        return False
-
-
-def run_servo(expression_intent: str, emotion_vector: Optional[Dict[str, float]] = None) -> Dict[str, str]:
+def start_alive_animation(emotion: str) -> None:
     """
-    Drive servo behavior from expression intent.
-
-    - joy/surprise: short wave
-    - sadness/fear: low-energy posture
-    - anger: guarded posture
-    - calm/default: neutral posture
+    Start the background alive animation for the given emotion pose.
+    Call this when TTS starts speaking.
     """
-    intent = (expression_intent or "calm").strip().lower()
-    emotion_vector = emotion_vector or {}
-    intensity = float(max(emotion_vector.values(), default=0.5))
-    intensity = max(0.2, min(1.0, intensity))
+    global _alive_thread, _current_pose
+    stop_alive_animation()  # stop any running animation first
+
     port = _get_serial_port()
     if port is None:
-        return {"action": "stub", "intent": intent}
+        return
 
+    resolved = resolve_emotion(emotion)
+    base_pose = dict(POSES.get(resolved, {}))
+    if not base_pose:
+        return
+
+    _current_pose = base_pose
+    _alive_stop_event.clear()
+    _alive_thread = threading.Thread(
+        target=_alive_loop, args=(port, base_pose), daemon=True
+    )
+    _alive_thread.start()
+    logger.info("Alive animation started for emotion: %s", resolved)
+
+
+def stop_alive_animation() -> None:
+    """Stop the alive background animation. Call this when TTS finishes."""
+    global _alive_thread
+    _alive_stop_event.set()
+    if _alive_thread and _alive_thread.is_alive():
+        _alive_thread.join(timeout=2.0)
+    _alive_thread = None
+    logger.info("Alive animation stopped")
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def run_servo(
+    emotion: str,
+    speaking: bool = False,
+    transition: bool = True,
+) -> Dict[str, str]:
+    """
+    Main entry point for the servo agent.
+
+    Args:
+        emotion:    Emotion string — any Ekman emotion or alias.
+                    The agent resolves it to the closest pose in poses.json.
+        speaking:   If True, starts the alive micro-movement animation.
+                    If False, just holds the pose.
+        transition: If True, smoothly interpolates from current pose to new pose.
+
+    Returns:
+        dict with 'action', 'emotion', 'resolved_emotion', 'payload'
+    """
+    global _current_pose
+
+    resolved = resolve_emotion(emotion)
+    target_pose = dict(POSES.get(resolved, {}))
+
+    if not target_pose:
+        logger.warning("No pose found for emotion '%s'", resolved)
+        return {"action": "stub", "emotion": emotion, "resolved_emotion": resolved, "payload": ""}
+
+    port = _get_serial_port()
+    if port is None:
+        return {"action": "stub", "emotion": emotion, "resolved_emotion": resolved, "payload": ""}
+
+    # Transition smoothly if we have a previous pose
+    if transition and _current_pose:
+        _transition_to(port, _current_pose, target_pose)
+    else:
+        _send_joints(port, target_pose)
+
+    _current_pose = target_pose
+    payload = _build_payload(target_pose)
+
+    if speaking:
+        start_alive_animation(resolved)
+    else:
+        stop_alive_animation()
+        _send_joints(port, target_pose)  # hold still
+
+    logger.info("Pose set: %s → %s | speaking=%s | payload=%s", emotion, resolved, speaking, payload)
+    return {
+        "action": "pose_set",
+        "emotion": emotion,
+        "resolved_emotion": resolved,
+        "payload": payload,
+    }
+
+
+def neutral() -> Dict[str, str]:
+    """Return robot to neutral (all joints 90°)."""
+    stop_alive_animation()
+    neutral_pose = {j: 90 for j in ["hh", "hv", "lear", "rear", "rsv", "lsv", "rsh", "lsh", "re", "le", "base"]}
+    port = _get_serial_port()
+    if port:
+        if _current_pose:
+            _transition_to(port, _current_pose, neutral_pose)
+        else:
+            _send_joints(port, neutral_pose)
+    return {"action": "neutral", "emotion": "neutral", "payload": _build_payload(neutral_pose)}
+
+
+# ---------------------------------------------------------------------------
+# CrewAI tool wrapper
+# ---------------------------------------------------------------------------
+
+def get_crewai_tool():
+    """
+    Returns a CrewAI-compatible Tool that agents can call.
+
+    Usage in your crew:
+        from servo_agent import get_crewai_tool
+        servo_tool = get_crewai_tool()
+    """
     try:
-        if intent in {"joy", "surprise"}:
-            cycles = 2 if intensity < 0.7 else 3
-            delay_s = max(0.22, 0.55 - (0.25 * intensity))
-            success = _smooth_wave(port, cycles=cycles, delay_s=delay_s, amplitude=intensity)
-            return {"action": "wave" if success else "stub", "intent": intent}
+        from crewai.tools import tool  # type: ignore
 
-        if intent in {"sadness", "fear"}:
-            droop = int(20 + (30 * intensity))
-            elbow_fold = int(100 + (40 * intensity))
-            _send_pose(
-                port,
-                rsv=90 + droop,
-                lsv=90 - droop,
-                rsh=90,
-                lsh=90,
-                re=elbow_fold,
-                le=elbow_fold,
-            )
-            return {"action": "comfort_pose", "intent": intent}
+        @tool("ServoMotionTool")
+        def servo_motion_tool(emotion: str, speaking: bool = False) -> str:
+            """
+            Drive RIO's servo motors to match an emotional state.
+            Use this tool whenever RIO starts speaking or transitions emotion.
 
-        if intent == "anger":
-            spread = int(12 + (28 * intensity))
-            elbow_tension = int(80 - (30 * intensity))
-            _send_pose(
-                port,
-                rsv=90 + spread,
-                lsv=90 - spread,
-                rsh=90 + spread,
-                lsh=90 - spread,
-                re=elbow_tension,
-                le=180 - elbow_tension,
-            )
-            return {"action": "guard_pose", "intent": intent}
+            Args:
+                emotion:  The emotion to express. One of: joy, sadness, fear,
+                          disgust, anger, surprise, calm, neutral, happy, excited,
+                          sad, scared, anxious, disgusted, angry, surprised, frustrated.
+                emotion:  Set to True when TTS is actively playing so the robot
+                speaking: does subtle alive movements. False to hold pose still.
 
-        _send_pose(port, rsv=90, lsv=90, rsh=90, lsh=90, re=90, le=90)
-        return {"action": "neutral_pose", "intent": intent}
-    except Exception as exc:
-        logger.warning("Servo action failed for intent '%s': %s", intent, exc)
-        return {"action": "stub", "intent": intent}
+            Returns:
+                JSON string describing the action taken.
+            """
+            result = run_servo(emotion=emotion, speaking=speaking)
+            return json.dumps(result)
 
+        return servo_motion_tool
+
+    except ImportError:
+        logger.warning("CrewAI not installed — returning plain callable instead")
+        return run_servo
+
+
+# ---------------------------------------------------------------------------
+# Quick test (run directly: python servo_agent.py)
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    print("Loaded poses:", list(POSES.keys()))
+    print()
+
+    emotions_to_test = ["joy", "sadness", "fear", "anger", "surprise", "disgust"]
+    for em in emotions_to_test:
+        print(f"→ Testing pose: {em}")
+        result = run_servo(em, speaking=True, transition=True)
+        print(f"  Result: {result}")
+        time.sleep(3)
+        stop_alive_animation()
+        time.sleep(0.5)
+
+    print("→ Returning to neutral")
+    neutral()
+    print("Done.")

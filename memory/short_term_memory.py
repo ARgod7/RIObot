@@ -137,7 +137,12 @@ def get_short_term_memory() -> ShortTermMemory:
     """Get or create memory"""
     global _short_term_memory
     if _short_term_memory is None:
-        _short_term_memory = ShortTermMemory()
+        try:
+            from config import SHORT_TERM_MEMORY_SIZE
+            size = int(SHORT_TERM_MEMORY_SIZE)
+        except Exception:
+            size = 7
+        _short_term_memory = ShortTermMemory(size=size)
     return _short_term_memory
 
 
@@ -154,32 +159,63 @@ def save_memory_to_file(filepath: str = "memory/short_term_memory.json"):
 
 
 def load_memory_from_file(filepath: str = "memory/short_term_memory.json"):
-    """Load recent memory (for context)"""
+    """Load JSON snapshot from disk (raw dict). Does not populate RAM — use hydrate_memory_from_file."""
     try:
         if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-                print(f"✓ Memory loaded: {data['summary']['total']} exchanges")
-                return data
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
     except Exception as e:
         print(f"⚠️ Failed to load memory: {e}")
     return None
 
 
-def get_summary(n: int = 3) -> str:
-    """Return last N interactions as a plain text string for LLM context."""
+def hydrate_memory_from_file(filepath: str = "memory/short_term_memory.json") -> None:
+    """Restore exchanges from disk into the in-process short-term memory (session continuity)."""
+    data = load_memory_from_file(filepath)
+    if not data:
+        return
+    exchanges_raw = data.get("exchanges") or []
+    memory = get_short_term_memory()
+    memory.exchanges.clear()
+    for row in exchanges_raw[-memory.size :]:
+        try:
+            memory.exchanges.append(
+                EmotionalExchange(
+                    timestamp=str(row.get("timestamp", "")),
+                    user_input=str(row.get("user_input", "")),
+                    user_emotion=str(row.get("user_emotion", "neutral")),
+                    emotion_valence=float(row.get("emotion_valence", 0.0)),
+                    rio_intent=str(row.get("rio_intent", "calm")),
+                    rio_response=str(row.get("rio_response", "")),
+                    post_response_valence=float(row.get("post_response_valence", 0.0)),
+                    delta=float(row.get("delta", 0.0)),
+                    intervention_effective=bool(row.get("intervention_effective", False)),
+                )
+            )
+        except (TypeError, ValueError, KeyError):
+            continue
+    print(f"✓ Memory restored: {len(memory.exchanges)} exchanges from {filepath}")
+
+
+def get_summary(n: Optional[int] = None) -> str:
+    """Return last N interactions as plain text for LLM context (default: full window)."""
     memory = get_short_term_memory()
     if not memory.exchanges:
         return ""
 
-    recent = memory.exchanges[-n:]
+    take = n if n is not None else memory.size
+    take = max(1, min(take, len(memory.exchanges)))
+    recent = memory.exchanges[-take:]
     lines = []
     for ex in recent:
-        lines.append(f"User: {ex.user_input[:80]}")
-        lines.append(f"RIO ({ex.rio_intent}): {ex.rio_response[:80]}")
-        lines.append(f"Emotion: {ex.user_emotion} (valence: {ex.emotion_valence:.2f} → {ex.post_response_valence:.2f})")
+        lines.append(f"User: {ex.user_input[:200]}")
+        lines.append(f"RIO (intervention {ex.rio_intent}): {ex.rio_response[:200]}")
+        lines.append(f"User dominant emotion: {ex.user_emotion} (valence {ex.emotion_valence:.2f} → {ex.post_response_valence:.2f})")
         lines.append("")
-
+    lines.append(
+        "Use this history: recall themes the user named, avoid repeating the same reassurance verbatim, "
+        "and build continuity like a skilled therapist."
+    )
     return "\n".join(lines)
 
 
@@ -189,8 +225,9 @@ def add_entry(
     expression_intent: str,
     emotion_before: Dict[str, float] = None,
     emotion_after: Dict[str, float] = None,
+    intervention_intent: Optional[str] = None,
 ) -> EmotionalExchange:
-    """Record one exchange to short-term memory."""
+    """Record one exchange to short-term memory and persist to disk."""
     memory = get_short_term_memory()
 
     # Extract dominant emotion
@@ -205,11 +242,15 @@ def add_entry(
 
     post_response_valence = emotion_valence  # Assume same for now (actual would measure after response)
 
-    return memory.add_exchange(
+    rio_intent = intervention_intent if intervention_intent else expression_intent
+
+    ex = memory.add_exchange(
         user_input=user_transcript or "...",
         user_emotion=user_emotion,
         emotion_valence=emotion_valence,
-        rio_intent=expression_intent,
+        rio_intent=rio_intent,
         rio_response=response_text,
         post_response_valence=post_response_valence,
     )
+    save_memory_to_file()
+    return ex

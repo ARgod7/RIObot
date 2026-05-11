@@ -418,10 +418,13 @@ class EmotionFusionEngine:
     def mark_support_prompt_emitted(self) -> None:
         self._last_support_emit_ts = time.time()
 
-    def fuse_smoothed(self, alpha: float = 0.6) -> EmotionVector:
+    def fuse_smoothed(self, alpha: float = 0.55) -> EmotionVector:
         """
         Exponential moving average smoothing over recent fused vectors.
+        REDUCED alpha (0.55 instead of 0.65) for faster real-time updates.
+
         alpha=1.0 means no smoothing (just latest), alpha→0 means very smooth.
+        Lower alpha = more responsive to changes, but noisier.
         """
         current = self.fuse()
         if len(self._history) < 2:
@@ -442,6 +445,7 @@ class EmotionFusionEngine:
         return EmotionVector(
             **smoothed, confidence=current.confidence, source="fused_smoothed"
         ).clamp()
+
 
     def get_dominant_emotion(self, vector: EmotionVector) -> tuple[str, float]:
         """Returns the emotion with the highest intensity and its value."""

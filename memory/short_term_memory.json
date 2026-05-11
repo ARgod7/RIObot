@@ -1,12 +1,54 @@
 {
-  "session_start": "2026-05-01T14:06:40.735481",
+  "user_id": "default_user",
   "exchanges": [
     {
       "timestamp": "2026-05-01T14:07:13.029417",
       "user_input": "i am feeling sad",
+      "user_emotion": "neutral",
+      "emotion_valence": 0.0,
+      "rio_intent": "calm",
       "rio_response": "What do you see or hear around you right now?",
-      "emotion": "sadness"
+      "post_response_valence": 0.0,
+      "delta": 0.0,
+      "intervention_effective": false
+    },
+    {
+      "timestamp": "2026-05-11T22:45:06.712785",
+      "user_input": "can you hear me I am feeling very sad today",
+      "user_emotion": "sadness",
+      "emotion_valence": -0.5411743841495991,
+      "rio_intent": "{\"type\": \"comfort\", \"urgency\": \"medium\"}",
+      "rio_response": "I'm hearing that sadness is really present for you today, and I'm here to listen. Can you tell me more about what's been going on? Sometimes, putting words to our feelings can help us feel a little more grounded.",
+      "post_response_valence": -0.5411743841495991,
+      "delta": 0.0,
+      "intervention_effective": false
+    },
+    {
+      "timestamp": "2026-05-11T22:46:00.457527",
+      "user_input": "chill chill chill chill chill",
+      "user_emotion": "sadness",
+      "emotion_valence": -0.49038270064328154,
+      "rio_intent": "{\"type\": \"comfort\", \"urgency\": \"medium\"}",
+      "rio_response": "I'm hearing that you're repeating 'chill' to yourself, which sounds like a way to calm down and soothe your feelings, and I'm here to support you in that effort. Let's take a deep breath together and focus on the present moment. What's around you right now that can help you feel more grounded?",
+      "post_response_valence": -0.49038270064328154,
+      "delta": 0.0,
+      "intervention_effective": false
     }
   ],
-  "last_emotion": "sadness"
+  "summary": {
+    "total": 3,
+    "interventions": {
+      "validation": 0,
+      "reframe": 0,
+      "deepening": 0,
+      "grounding": 0
+    },
+    "effective_rates": {
+      "validation": 0.0,
+      "reframe": 0.0,
+      "deepening": 0.0,
+      "grounding": 0.0
+    },
+    "trend": "declining"
+  }
 }
