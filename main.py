@@ -17,6 +17,7 @@ from pathlib import Path
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
 from rio_bridge.ws_server import send_emotion_update
+import httpx
 
 # Set up logging
 logging.basicConfig(
@@ -53,6 +54,22 @@ from config import EMOTION_WS_BROADCAST_MIN_S
 from memory.short_term_memory import reset_memory
 from memory.persistent_memory import set_user_name
 from config import CLEAR_MEMORY_ON_START
+
+# Logger endpoint for HTTP logger server (Node)
+LOGGER_URL = os.getenv("LOGGER_URL", "http://127.0.0.1:4000").rstrip('/')
+LOGGER_TIMEOUT = float(os.getenv("LOGGER_TIMEOUT", "1.0"))
+
+
+def _send_log(endpoint: str, payload: dict) -> None:
+    """Send a JSON log to the external logger HTTP server.
+
+    Non-critical: failures are logged at debug level and do not raise.
+    """
+    try:
+        url = f"{LOGGER_URL}/{endpoint.lstrip('/') }"
+        httpx.post(url, json=payload, timeout=LOGGER_TIMEOUT)
+    except Exception as e:
+        logger.debug(f"Failed to POST to logger {endpoint}: {e}")
 
 
 def has_hindi(text: str) -> bool:
@@ -101,7 +118,7 @@ def _broadcast_live_perception(
     """Push fused + source vectors to browser /details (must run even when idle)."""
     source_status = perception_debug.get("sources", {})
     emotion_dynamics = perception_debug.get("emotion_dynamics", {})
-    send_emotion_update({
+    payload = {
         "face": _vector_payload(source_status.get("face", {})),
         "posture": _vector_payload(source_status.get("posture", {})),
         "voice": _vector_payload(source_status.get("voice", {})),
@@ -126,7 +143,12 @@ def _broadcast_live_perception(
             "timesOccurred": stimulus_dict.get("timesOccurred"),
             "timestamp": stimulus_dict.get("timestamp"),
         },
-    })
+    }
+    send_emotion_update(payload)
+    try:
+        _send_log("emotion_update", payload)
+    except Exception:
+        logger.debug("Logger POST failed for emotion_update")
 
 
 def start_web_server(port: int = 8000):
@@ -354,6 +376,10 @@ def main():
 
                 # Step 3c: Call Rio engine via rio_client
                 rio_response = call_rio_engine(stimulus_dict)
+                try:
+                    _send_log("stimulus", {"stimulus": stimulus_dict, "rio_response": rio_response})
+                except Exception:
+                    logger.debug("Logger POST failed for stimulus")
                 intervention_intent = rio_response.get("intervention_intent", "validation")
                 emotion_before = stimulus_dict.get("emotions", {})
 
@@ -401,6 +427,17 @@ def main():
                         intervention_intent=intervention_intent,
                         pipeline_feedback=pipeline_result.get("feedback", {}),
                     )
+                    try:
+                        _send_log("rio_response", {
+                            "response_text": response_text,
+                            "expression": expression_intent,
+                            "audio_url": audio_url or "/audio/response.mp3",
+                            "rio_state": rio_response.get("rio_state", {}),
+                            "intervention_intent": intervention_intent,
+                            "pipeline_feedback": pipeline_result.get("feedback", {}),
+                        })
+                    except Exception:
+                        logger.debug("Logger POST failed for rio_response")
 
                 # Step 3g: Send expression to Node face
                 logger.debug(f"Sending expression: {expression_intent}")
