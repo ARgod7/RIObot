@@ -76,7 +76,7 @@ body { overflow: hidden; }
     background: var(--mic-color);
     box-shadow: var(--mic-shadow);
     cursor: pointer;
-    z-index: 500;
+    z-index: 520;
     outline: none;
     transition: box-shadow 0.2s, transform 0.15s;
     line-height: 1;
@@ -97,6 +97,28 @@ body { overflow: hidden; }
 }
 #micBtn:hover { transform: translate(-50%, -40%) scale(1.04); }
 #micBtn:active { transform: translate(-50%, -40%) scale(0.98); }
+
+/* Connection dot + emotion line (no chat panel) */
+.rio-status {
+    position: fixed;
+    left: 50%;
+    bottom: 88px;
+    transform: translateX(-50%);
+    z-index: 500;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    max-width: min(92vw, 360px);
+    padding: 0 8px;
+}
+.rio-status .emotion-chip {
+    max-width: none;
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+}
 
 /* Collapsed: pill "Chat" bottom-right (reference) */
 .chat-toggle {
@@ -263,15 +285,19 @@ body.chat-open .chat-toggle {
 }
 
 .mic-hint {
+    position: fixed;
+    left: 50%;
+    bottom: 56px;
+    transform: translateX(-50%);
+    z-index: 500;
+    pointer-events: none;
     font-size: 11px;
     color: #6b7280;
-    padding: 0 12px 6px;
+    padding: 0 12px 4px;
     min-height: 14px;
     line-height: 1.3;
-}
-
-#playPromptHost {
-    padding: 0 8px;
+    max-width: min(92vw, 400px);
+    text-align: center;
 }
 
 .chat-input-row {
@@ -322,20 +348,6 @@ body.chat-open .chat-toggle {
 }
 #sendBtn:hover { background: #1d4ed8; }
 
-.play-prompt-btn {
-    margin: 4px 0 8px;
-    background: #f3f4f6;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 12px;
-    color: var(--black);
-    cursor: pointer;
-    width: 100%;
-    text-align: center;
-}
-.play-prompt-btn:hover { background: #e5e7eb; }
-
 .footer-hint {
     position: fixed;
     left: 12px;
@@ -361,6 +373,14 @@ body.chat-open .chat-toggle {
 }
 
 @media (max-width: 480px) {
+    .rio-status {
+        bottom: 80px;
+        max-width: calc(100vw - 20px);
+    }
+    .mic-hint {
+        bottom: 50px;
+        font-size: 10px;
+    }
     .chat-toggle {
         right: 12px;
         bottom: 12px;

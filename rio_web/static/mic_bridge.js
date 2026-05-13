@@ -4,7 +4,11 @@
 // Auto-reconnects if WebSocket drops
 
 (function() {
-  const WS_URL = "ws://0.0.0.0:8765";
+  const WS_PORT = 8765;
+  function wsUrl() {
+    const host = window.location.hostname || "localhost";
+    return `ws://${host}:${WS_PORT}`;
+  }
   const micBtn  = document.getElementById("micBtn");
   const micDot  = document.getElementById("micDot");
   const micHintEl = document.getElementById("micHint");
@@ -57,7 +61,7 @@
 
     // Fallback: create our own socket if app.js isn't ready
     if (!ws || ws.readyState === WebSocket.CLOSED) {
-      ws = new WebSocket(WS_URL);
+      ws = new WebSocket(wsUrl());
       ws.onopen = () => {
         console.log("[MicBridge] Fallback WS connected");
         if (micDot) micDot.className = "mic-dot on";
@@ -232,7 +236,6 @@
   // ── Mic button toggle ─────────────────────────────────────────────────
   function startListening() {
     isListening = true;
-    if (typeof window.openRioChat === "function") window.openRioChat();
     lastSpeechAt = Date.now();
     setMicHint("Starting microphone...");
     if (!recognition) recognition = initRecognition();
@@ -284,6 +287,9 @@
 
   if (micBtn) {
     micBtn.addEventListener("click", () => {
+      if (typeof window.__rioNoteUserActivation === "function") {
+        window.__rioNoteUserActivation();
+      }
       isListening ? stopListening() : startListening();
     });
   }

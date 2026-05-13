@@ -1,9 +1,11 @@
 """
 Servo Agent — RIO Embodied Motion Controller
-Drives all 11 servo joints from poses_generated.json based on emotional state.
+Drives all 11 servo joints from poses.json based on emotional state.
 Supports:
   - LLM/agent-chosen emotion → pose lookup
-  - Micro-movement "alive" animation while speaking
+  - Right-arm "talking" gesture while speaking (TTS / mouth moving): rsv=0,
+    rsh oscillates 150°–180°, re oscillates 90°–180°; left arm/head/base follow
+    the emotion pose. When speech stops, servos return to that emotion pose.
   - Smooth transitions between poses
   - Full 11-joint control: head, ears, shoulders, elbows, base
 
@@ -17,7 +19,7 @@ Servo slot mapping (8-slot serial protocol):
   Slot 6: left elbow (le)
   Slot 7: base
 
-  NOTE: hv, lear, rear are stored in poses files but the current
+  NOTE: hv, lear, rear are stored in poses.json but the current
   8-slot protocol has no spare slots for them. Set ENABLE_EXTENDED_SERVOS=True
   below when you upgrade to a 12-slot controller — the builder functions
   already compute them so no other changes needed.
@@ -27,11 +29,11 @@ import json
 import logging
 import math
 import os
-import random
+import sys
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 try:
     import serial  # type: ignore
@@ -46,27 +48,27 @@ logger = logging.getLogger(__name__)
 SERVO_COM_PORT: int = int(os.getenv("SERVO_COM_PORT", "5"))
 SERVO_BAUD_RATE: int = int(os.getenv("SERVO_BAUD_RATE", "9600"))
 SERVO_TIMEOUT_S: float = float(os.getenv("SERVO_TIMEOUT_S", "1"))
+# Full device path overrides COM/tty defaults (e.g. /dev/ttyUSB0, /dev/serial/by-id/...).
+SERVO_SERIAL_DEVICE: str = os.getenv("SERVO_SERIAL_DEVICE", "").strip()
+# On Linux/macOS when SERVO_SERIAL_DEVICE is unset, try this (often /dev/ttyACM0 on Pi).
+SERVO_LINUX_TTY: str = os.getenv("SERVO_LINUX_TTY", "/dev/ttyACM0").strip()
 
-# Path to poses files — resolved from project root
+# Path to poses.json — resolved from project root
 POSES_FILE: Path = Path(__file__).parent.parent.parent / "servo_controls" / "poses_generated.json"
-POSES_FALLBACK_FILE: Path = Path(__file__).parent.parent.parent / "servo_controls" / "poses.json"
 
 # Set True when controller is upgraded to 12 slots (adds hv, lear, rear)
 ENABLE_EXTENDED_SERVOS: bool = False
 
-# Micro-movement config while speaking
-ALIVE_INTERVAL_S: float = 0.8        # how often to nudge joints
-ALIVE_AMPLITUDE: int = 6             # max degrees of random sway
-ALIVE_JOINTS = ["rsv", "lsv", "rsh", "lsh", "re", "le", "hh"]
-ALIVE_JOINT_AMPLITUDE = {
-    "hh": 6,
-    "rsv": 5,
-    "lsv": 5,
-    "rsh": 4,
-    "lsh": 4,
-    "re": 3,
-    "le": 3,
-}
+# Talking gesture (while speaking=True) — right arm only; rest from emotion pose
+TALKING_TICK_S: float = 0.05
+TALKING_RSV: int = 0
+TALKING_RSH_LO: int = 150
+TALKING_RSH_HI: int = 180
+TALKING_RE_LO: int = 90
+TALKING_RE_HI: int = 180
+TALKING_RSH_OMEGA: float = 5.0   # oscillation speed (rad/s)
+TALKING_RE_OMEGA: float = 4.1
+TALKING_RE_PHASE: float = 0.65  # offset vs rsh so joints do not lockstep
 
 # Transition step size per tick (smaller = smoother but slower)
 TRANSITION_STEP: int = 4
@@ -79,35 +81,33 @@ DEFAULT_EMOTION: str = "joy"
 # Pose library — loaded once at import
 # ---------------------------------------------------------------------------
 
-def _load_poses(path: Path) -> Dict[str, Dict[int, Dict[str, int]]]:
-    """Load and normalise poses with intensity variants (0-4)."""
+def _load_poses(path: Path) -> Dict[str, Dict[str, Dict[str, int]]]:
+    """Load and normalise poses.json. Fixes typo 'sadnesss' → 'sadness'."""
     try:
         raw = json.loads(path.read_text())
     except Exception as exc:
-        logger.error("Failed to load poses from %s: %s", path, exc)
+        logger.error("Failed to load poses.json: %s", exc)
         return {}
 
-    normalised: Dict[str, Dict[int, Dict[str, int]]] = {}
+    normalised: Dict[str, Dict[str, Dict[str, int]]] = {}
     for key, variants in raw.items():
-        clean_key = "sadness" if key.strip().lower() == "sadnesss" else key.strip().lower()
-        variant_map: Dict[int, Dict[str, int]] = {}
-        for variant_key, variant_data in (variants or {}).items():
-            try:
-                idx = int(variant_key)
-            except (TypeError, ValueError):
-                continue
-            variant_map[idx] = {k: int(v) for k, v in (variant_data or {}).items()}
-
-        if not variant_map and isinstance(variants, dict):
-            # Single-frame file fallback: treat entire dict as intensity 0
-            variant_map[0] = {k: int(v) for k, v in variants.items()}
-
-        if variant_map:
-            normalised[clean_key] = variant_map
+        clean_key = key.strip().lower().rstrip("s") if key == "sadnesss" else key.strip().lower()
+        if not isinstance(variants, dict):
+            continue
+        # Support both {variant: {joints}} and a flat {joints} map
+        if all(not isinstance(v, dict) for v in variants.values()):
+            variant_map = {"0": {k: int(v) for k, v in variants.items()}}
+        else:
+            variant_map = {
+                str(k): {jk: int(jv) for jk, jv in v.items()}
+                for k, v in variants.items()
+                if isinstance(v, dict)
+            }
+        normalised[clean_key] = variant_map
     return normalised
 
 
-POSES: Dict[str, Dict[int, Dict[str, int]]] = _load_poses(POSES_FILE) or _load_poses(POSES_FALLBACK_FILE)
+POSES: Dict[str, Dict[str, Dict[str, int]]] = _load_poses(POSES_FILE)
 
 EMOTION_ALIASES: Dict[str, str] = {
     "happy": "joy",
@@ -136,24 +136,26 @@ def resolve_emotion(emotion: str) -> str:
     return DEFAULT_EMOTION
 
 
-def _coerce_intensity(intensity: Optional[int]) -> int:
+def _intensity_to_variant(intensity: Optional[float]) -> str:
+    """Map intensity in [0, 1] or [0, 4] to variant key "0"–"4"."""
     if intensity is None:
-        return 2
+        return "0"
     try:
-        return max(0, min(4, int(intensity)))
+        value = float(intensity)
     except (TypeError, ValueError):
-        return 2
+        return "0"
+    if value > 1.0:
+        idx = int(round(value))
+        return str(max(0, min(4, idx)))
+    clamped = max(0.0, min(1.0, value))
+    idx = int(round(clamped * 4))
+    return str(idx)
 
 
-def _pick_pose(emotion: str, intensity: Optional[int]) -> Dict[str, int]:
-    intensity_idx = _coerce_intensity(intensity)
+def _select_pose(emotion: str, intensity: Optional[float]) -> Dict[str, int]:
     variants = POSES.get(emotion, {})
-    if not variants:
-        return {}
-    if intensity_idx in variants:
-        return dict(variants[intensity_idx])
-    closest = min(variants.keys(), key=lambda k: abs(k - intensity_idx))
-    return dict(variants[closest])
+    variant_key = _intensity_to_variant(intensity)
+    return dict(variants.get(variant_key) or variants.get("0") or next(iter(variants.values()), {}))
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +166,15 @@ _SERIAL_PORT: Optional["serial.Serial"] = None
 _SERIAL_LOCK = threading.Lock()
 
 
+def _serial_device_name() -> str:
+    """Serial port path: SERVO_SERIAL_DEVICE, else COM{n} on Windows, else SERVO_LINUX_TTY."""
+    if SERVO_SERIAL_DEVICE:
+        return SERVO_SERIAL_DEVICE
+    if sys.platform == "win32":
+        return f"COM{SERVO_COM_PORT}"
+    return SERVO_LINUX_TTY
+
+
 def _get_serial_port() -> Optional["serial.Serial"]:
     global _SERIAL_PORT
     if serial is None:
@@ -172,14 +183,13 @@ def _get_serial_port() -> Optional["serial.Serial"]:
     with _SERIAL_LOCK:
         if _SERIAL_PORT and _SERIAL_PORT.is_open:
             return _SERIAL_PORT
+        device = _serial_device_name()
         try:
-            _SERIAL_PORT = serial.Serial(
-                f"COM{SERVO_COM_PORT}", SERVO_BAUD_RATE, timeout=SERVO_TIMEOUT_S
-            )
-            logger.info("Servo serial connected on COM%s", SERVO_COM_PORT)
+            _SERIAL_PORT = serial.Serial(device, SERVO_BAUD_RATE, timeout=SERVO_TIMEOUT_S)
+            logger.info("Servo serial connected on %s", device)
             return _SERIAL_PORT
         except Exception as exc:
-            logger.warning("Failed to open servo serial port: %s", exc)
+            logger.warning("Failed to open servo serial port %s: %s", device, exc)
             return None
 
 
@@ -261,68 +271,117 @@ def _transition_to(
 
 
 # ---------------------------------------------------------------------------
-# Alive micro-movement — runs in a background thread while speaking
+# Talking animation — background thread while speaking (TTS)
 # ---------------------------------------------------------------------------
 
 _alive_thread: Optional[threading.Thread] = None
 _alive_stop_event = threading.Event()
 _current_pose: Dict[str, int] = {}
+# Full emotion pose to restore when speech ends (same as when talking started)
+_emotion_restore_pose: Dict[str, int] = {}
+_talking_timer: Optional[threading.Timer] = None
+_talking_timer_lock = threading.Lock()
 
 
-def _alive_loop(port: "serial.Serial", base_pose: Dict[str, int]) -> None:
+def _talking_loop(port: "serial.Serial", emotion_base: Dict[str, int]) -> None:
     """
-    Holds the emotion pose but adds subtle sinusoidal sway to selected joints
-    so the robot looks alive while speaking.
+    Merge emotion pose for non-right-arm joints with a fixed talking gesture
+    on the right arm: rsv=0, rsh sweeps 150–180°, re sweeps 90–180°.
     """
+    global _current_pose
+    rsh_mid = (TALKING_RSH_LO + TALKING_RSH_HI) / 2.0
+    rsh_amp = (TALKING_RSH_HI - TALKING_RSH_LO) / 2.0
+    re_mid = (TALKING_RE_LO + TALKING_RE_HI) / 2.0
+    re_amp = (TALKING_RE_HI - TALKING_RE_LO) / 2.0
     t = 0.0
     while not _alive_stop_event.is_set():
-        nudged = dict(base_pose)
-        for i, joint in enumerate(ALIVE_JOINTS):
-            if joint in nudged:
-                # Each joint gets a slightly different phase so they don't all move together
-                phase = i * (math.pi / len(ALIVE_JOINTS))
-                amp = ALIVE_JOINT_AMPLITUDE.get(joint, ALIVE_AMPLITUDE)
-                sway = int(amp * math.sin(t * 1.5 + phase))
-                nudged[joint] = _clamp(nudged[joint] + sway)
-        _send_joints(port, nudged)
-        t += ALIVE_INTERVAL_S
-        time.sleep(ALIVE_INTERVAL_S)
+        frame = dict(emotion_base)
+        frame["rsv"] = TALKING_RSV
+        frame["rsh"] = _clamp(
+            int(round(rsh_mid + rsh_amp * math.sin(t * TALKING_RSH_OMEGA)))
+        )
+        frame["re"] = _clamp(
+            int(round(re_mid + re_amp * math.sin(t * TALKING_RE_OMEGA + TALKING_RE_PHASE)))
+        )
+        _send_joints(port, frame)
+        _current_pose = frame
+        time.sleep(TALKING_TICK_S)
+        t += TALKING_TICK_S
 
 
-def start_alive_animation(emotion: str, intensity: Optional[int] = None) -> None:
+def start_alive_animation(emotion: str, intensity: Optional[float] = None) -> None:
     """
-    Start the background alive animation for the given emotion pose.
-    Call this when TTS starts speaking.
+    Start the talking right-arm animation for the given emotion pose.
+    Call when TTS / mouth movement begins. ``intensity`` maps 0–1 to
+    pose variants 0–4.
     """
-    global _alive_thread, _current_pose
-    stop_alive_animation()  # stop any running animation first
+    global _alive_thread, _emotion_restore_pose
+    stop_alive_animation()
 
     port = _get_serial_port()
     if port is None:
         return
 
     resolved = resolve_emotion(emotion)
-    base_pose = _pick_pose(resolved, intensity)
+    base_pose = _select_pose(resolved, intensity)
     if not base_pose:
         return
 
-    _current_pose = base_pose
+    _emotion_restore_pose = dict(base_pose)
     _alive_stop_event.clear()
     _alive_thread = threading.Thread(
-        target=_alive_loop, args=(port, base_pose), daemon=True
+        target=_talking_loop, args=(port, base_pose), daemon=True
     )
     _alive_thread.start()
-    logger.info("Alive animation started for emotion: %s", resolved)
+    logger.info("Talking animation started for emotion: %s", resolved)
 
 
 def stop_alive_animation() -> None:
-    """Stop the alive background animation. Call this when TTS finishes."""
-    global _alive_thread
+    """Stop talking animation and return to the emotion pose held when speech began."""
+    global _alive_thread, _current_pose, _emotion_restore_pose
     _alive_stop_event.set()
     if _alive_thread and _alive_thread.is_alive():
         _alive_thread.join(timeout=2.0)
     _alive_thread = None
-    logger.info("Alive animation stopped")
+
+    port = _get_serial_port()
+    if port and _emotion_restore_pose:
+        target = dict(_emotion_restore_pose)
+        if _current_pose:
+            _transition_to(port, _current_pose, target)
+        else:
+            _send_joints(port, target)
+        _current_pose = target
+        _emotion_restore_pose.clear()
+    elif _emotion_restore_pose:
+        # No serial — still clear bookkeeping
+        _emotion_restore_pose.clear()
+
+    logger.info("Talking animation stopped")
+
+
+def start_talking_for_text(
+    emotion: str,
+    text: str,
+    intensity: Optional[float] = None,
+    speed: float = 1.0,
+    wpm: int = 150,
+) -> None:
+    """Start talking animation and auto-stop after estimated speech duration."""
+    if not text or not text.strip():
+        return
+    safe_speed = max(0.6, min(1.6, float(speed or 1.0)))
+    words = len(text.split())
+    duration_s = max(1.2, (words / (wpm * safe_speed)) * 60.0)
+
+    start_alive_animation(emotion, intensity=intensity)
+    with _talking_timer_lock:
+        global _talking_timer
+        if _talking_timer and _talking_timer.is_alive():
+            _talking_timer.cancel()
+        _talking_timer = threading.Timer(duration_s, stop_alive_animation)
+        _talking_timer.daemon = True
+        _talking_timer.start()
 
 
 # ---------------------------------------------------------------------------
@@ -333,17 +392,19 @@ def run_servo(
     emotion: str,
     speaking: bool = False,
     transition: bool = True,
-    intensity: Optional[int] = None,
+    intensity: Optional[float] = None,
 ) -> Dict[str, str]:
     """
     Main entry point for the servo agent.
 
     Args:
         emotion:    Emotion string — any Ekman emotion or alias.
-                    The agent resolves it to the closest pose in poses files.
-        speaking:   If True, starts the alive micro-movement animation.
-                    If False, just holds the pose.
+                    The agent resolves it to the closest pose in poses.json.
+        speaking:   If True, starts the talking right-arm animation (rsv=0,
+                    rsh 150–180°, re 90–180°) while keeping the rest of the body
+                    on the emotion pose. If False, holds the pose still.
         transition: If True, smoothly interpolates from current pose to new pose.
+        intensity:  Optional; maps 0–1 to pose variants 0–4.
 
     Returns:
         dict with 'action', 'emotion', 'resolved_emotion', 'payload'
@@ -351,7 +412,7 @@ def run_servo(
     global _current_pose
 
     resolved = resolve_emotion(emotion)
-    target_pose = _pick_pose(resolved, intensity)
+    target_pose = _select_pose(resolved, intensity)
 
     if not target_pose:
         logger.warning("No pose found for emotion '%s'", resolved)
@@ -377,11 +438,11 @@ def run_servo(
         _send_joints(port, target_pose)  # hold still
 
     logger.info(
-        "Pose set: %s → %s | intensity=%s | speaking=%s | payload=%s",
+        "Pose set: %s → %s | speaking=%s | intensity=%s | payload=%s",
         emotion,
         resolved,
-        _coerce_intensity(intensity),
         speaking,
+        intensity,
         payload,
     )
     return {
@@ -394,6 +455,7 @@ def run_servo(
 
 def neutral() -> Dict[str, str]:
     """Return robot to neutral (all joints 90°)."""
+    global _current_pose
     stop_alive_animation()
     neutral_pose = {j: 90 for j in ["hh", "hv", "lear", "rear", "rsv", "lsv", "rsh", "lsh", "re", "le", "base"]}
     port = _get_serial_port()
@@ -402,6 +464,9 @@ def neutral() -> Dict[str, str]:
             _transition_to(port, _current_pose, neutral_pose)
         else:
             _send_joints(port, neutral_pose)
+        _current_pose = dict(neutral_pose)
+    else:
+        _current_pose = dict(neutral_pose)
     return {"action": "neutral", "emotion": "neutral", "payload": _build_payload(neutral_pose)}
 
 
@@ -421,7 +486,9 @@ def get_crewai_tool():
         from crewai.tools import tool  # type: ignore
 
         @tool("ServoMotionTool")
-        def servo_motion_tool(emotion: str, speaking: bool = False, intensity: int = 2) -> str:
+        def servo_motion_tool(
+            emotion: str, speaking: bool = False, intensity: Optional[float] = None
+        ) -> str:
             """
             Drive RIO's servo motors to match an emotional state.
             Use this tool whenever RIO starts speaking or transitions emotion.
@@ -430,8 +497,8 @@ def get_crewai_tool():
                 emotion:  The emotion to express. One of: joy, sadness, fear,
                           disgust, anger, surprise, calm, neutral, happy, excited,
                           sad, scared, anxious, disgusted, angry, surprised, frustrated.
-                emotion:  Set to True when TTS is actively playing so the robot
-                speaking: does subtle alive movements. False to hold pose still.
+                speaking: Set to True while TTS is playing so the right arm uses
+                    the talking gesture; False to hold the pose still.
 
             Returns:
                 JSON string describing the action taken.
@@ -458,7 +525,7 @@ if __name__ == "__main__":
     emotions_to_test = ["joy", "sadness", "fear", "anger", "surprise", "disgust"]
     for em in emotions_to_test:
         print(f"→ Testing pose: {em}")
-        result = run_servo(em, speaking=True, transition=True, intensity=2)
+        result = run_servo(em, speaking=True, transition=True)
         print(f"  Result: {result}")
         time.sleep(3)
         stop_alive_animation()

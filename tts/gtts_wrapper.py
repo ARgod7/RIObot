@@ -396,7 +396,15 @@ def _apply_prosody(src: Path, dst: Path, pitch: float, speed: float) -> bool:
         return False
 
 
-def speak(text: str, lang: str = "en", pitch: float = 1.0, speed: float = 1.0) -> str:
+def speak(
+    text: str,
+    lang: str = "en",
+    pitch: float = 1.0,
+    speed: float = 1.0,
+    emotion: Optional[str] = None,
+    intensity: Optional[float] = None,
+    talking: bool = True,
+) -> str:
     """
     Speak text using gTTS, then optional ffmpeg prosody (pitch/speed) for browser playback.
 
@@ -434,6 +442,19 @@ def speak(text: str, lang: str = "en", pitch: float = 1.0, speed: float = 1.0) -
                     logger.info("Prosody skipped (no ffmpeg or filter failed); using raw TTS")
 
             shutil.copy2(response_file, latest_file)
+
+            if talking and emotion:
+                try:
+                    from cognition.agents.servo_agent import start_talking_for_text
+
+                    start_talking_for_text(
+                        emotion=emotion,
+                        text=text,
+                        intensity=intensity,
+                        speed=speed,
+                    )
+                except Exception as exc:
+                    logger.debug("Talking animation hook failed: %s", exc)
 
             logger.info(f"✓ Audio saved to browser: {response_file}")
             return f"/audio/{response_file.name}"

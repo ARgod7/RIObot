@@ -29,6 +29,8 @@ import threading
 import queue
 import time
 import numpy as np
+import os
+from typing import Optional
 from perception.emotion_fusion import EmotionVector
 from config import MIC_INDEX
 
@@ -73,7 +75,8 @@ class VoiceEmotionDetector:
         text_weight: float = 0.7,
         acoustic_weight: float = 0.3,
         phrase_time_limit: float = 6.0,   # max seconds per utterance
-        use_transformer: bool = True
+        use_transformer: bool = True,
+        lazy_transformer: Optional[bool] = None,
     ):
         self.language = language
         self.text_weight = text_weight
@@ -92,10 +95,17 @@ class VoiceEmotionDetector:
         self._emotion_pipeline = None
         self._mic_names = []
         self._mic_index = None
+        self._transformer_loading = False
+        if lazy_transformer is None:
+            lazy_transformer = os.getenv("VOICE_LAZY_TRANSFORMER", "1").strip() != "0"
+        self._lazy_transformer = bool(lazy_transformer)
 
         self._init_speech_recognition()
         if use_transformer:
-            self._init_transformer()
+            if self._lazy_transformer:
+                self._init_transformer_async()
+            else:
+                self._init_transformer()
 
     def _init_speech_recognition(self):
         try:
@@ -155,6 +165,15 @@ class VoiceEmotionDetector:
             logger.warning("transformers/torch not installed. Falling back to lexicon-based analysis.")
         except Exception as e:
             logger.warning(f"Could not load transformer model: {e}. Using lexicon fallback.")
+        finally:
+            self._transformer_loading = False
+
+    def _init_transformer_async(self) -> None:
+        if self._transformer_loading or self._transformer_available:
+            return
+        self._transformer_loading = True
+        t = threading.Thread(target=self._init_transformer, daemon=True)
+        t.start()
 
     # ── Text-Based Emotion Analysis ─────────────────────────────────────────
 
@@ -180,8 +199,24 @@ class VoiceEmotionDetector:
 
     def _transformer_emotion(self, text: str) -> EmotionVector:
         try:
-            results = self._emotion_pipeline(text[:512])[0]  # truncate for safety
-            scores = {r["label"].lower(): r["score"] for r in results}
+            results = self._emotion_pipeline(text[:512])  # truncate for safety
+            if isinstance(results, list) and results and isinstance(results[0], list):
+                results = results[0]
+            if isinstance(results, dict):
+                if "labels" in results and "scores" in results:
+                    results = [
+                        {"label": label, "score": score}
+                        for label, score in zip(results["labels"], results["scores"])
+                    ]
+                elif "label" in results and "score" in results:
+                    results = [results]
+                else:
+                    results = []
+
+            if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+                raise ValueError(f"Unexpected transformer output: {type(results)}")
+
+            scores = {r.get("label", "").lower(): float(r.get("score", 0.0)) for r in results}
             neutral_score = scores.pop("neutral", 0.0)
 
             # Redistribute neutral slightly across all

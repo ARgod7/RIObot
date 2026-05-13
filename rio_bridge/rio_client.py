@@ -5,6 +5,7 @@ All cognition layer code imports from here — never calls the bridge directly.
 """
 
 import asyncio
+import os
 import httpx
 import logging
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
@@ -13,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 # New LLM emotional engine runs on port 3001 (server.js)
 # Old facial engine runs on port 5000 (index.js)
-RIO_BRIDGE_URL = "http://0.0.0.0:3001"
+# Use 127.0.0.1 for outbound HTTP — Windows rejects http://0.0.0.0:... (WinError 10049).
+RIO_BRIDGE_URL = os.getenv("RIO_BRIDGE_URL", "http://127.0.0.1:3001").rstrip("/")
 RIO_BRIDGE_TIMEOUT = 5.0
 RIO_BRIDGE_RETRIES = 3
 
@@ -385,7 +387,7 @@ def send_expression(expression_intent: str) -> None:
 def send_audio_to_browser(filename: str) -> None:
     """
     Send audio file to browser for playback via socket.io on port 3001.
-    Makes POST request to http://0.0.0.0:3001/play-audio
+    POST /play-audio on the bridge (RIO_BRIDGE_URL).
     
     Args:
         filename: Relative path to audio file (e.g., "audio/response.mp3")

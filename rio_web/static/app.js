@@ -8,6 +8,15 @@ const RECONNECT_DELAY = 3000;
 let ws = null;
 let reconnectTimer = null;
 let audioUnlocked = false;
+/** If autoplay was blocked, play this URL after the next user gesture. */
+let pendingAudioUrl = null;
+
+function flushPendingAudio() {
+  const url = pendingAudioUrl;
+  if (!url || !audioUnlocked) return;
+  pendingAudioUrl = null;
+  playAudio(url);
+}
 
 /** Last dialogue expression — drives idle vs speaking mouth art */
 let currentExpression = "calm";
@@ -18,33 +27,8 @@ const emotionState = document.getElementById("emotionState");
 const audioPlayer  = document.getElementById("audioPlayer");
 const userInput    = document.getElementById("userInput");
 const sendBtn      = document.getElementById("sendBtn");
-const micBtn       = document.getElementById("micBtn");
 const micDot       = document.getElementById("micDot");
 const conversationLog = document.getElementById("conversationLog");
-const chatPanel = document.getElementById("chatPanel");
-const chatToggle = document.getElementById("chatToggle");
-const chatClose = document.getElementById("chatClose");
-
-function openChat() {
-  if (!chatPanel) return;
-  chatPanel.hidden = false;
-  document.body.classList.add("chat-open");
-  if (chatToggle) chatToggle.setAttribute("aria-expanded", "true");
-  requestAnimationFrame(() => {
-    try { userInput?.focus(); } catch (_) {}
-  });
-}
-
-function closeChat() {
-  if (!chatPanel) return;
-  chatPanel.hidden = true;
-  document.body.classList.remove("chat-open");
-  if (chatToggle) chatToggle.setAttribute("aria-expanded", "false");
-}
-
-if (chatToggle) chatToggle.addEventListener("click", openChat);
-if (chatClose) chatClose.addEventListener("click", closeChat);
-window.openRioChat = openChat;
 
 function hideLogPlaceholder() {
   const ph = document.getElementById("logPlaceholder");
@@ -54,7 +38,6 @@ function hideLogPlaceholder() {
 function appendBubble(role, text) {
   const log = conversationLog;
   if (!log || !text) return;
-  openChat();
   hideLogPlaceholder();
   const row = document.createElement("div");
   row.className = `msg msg-${role}`;
@@ -171,7 +154,6 @@ function handleMessage(msg) {
     }
 
     case "play_audio":
-      openChat();
       playAudio(msg.url);
       break;
 
@@ -182,15 +164,25 @@ function handleMessage(msg) {
 }
 
 function playAudio(url) {
-  openChat();
+  pendingAudioUrl = null;
   audioPlayer.pause();
   audioPlayer.currentTime = 0;
   audioPlayer.src = url + "?t=" + Date.now();
   audioPlayer.preload = "auto";
   audioPlayer.muted = false;
   audioPlayer.volume = 1.0;
-  audioPlayer.style.display = "block";
   audioPlayer.load();
+
+  // Must run before sendAudioState(true): a blocked client must not tell the server
+  // we started/stopped playback, or stop_alive_animation() fires and desyncs other
+  // browsers + the physical servo when two clients share one WS backend.
+  if (!audioUnlocked) {
+    console.warn("[RIO] Audio locked until user interaction — will play after a tap");
+    setRioSpeaking(false);
+    pendingAudioUrl = url;
+    return;
+  }
+
   setRioSpeaking(true);
   sendAudioState(true);
   armSpeakingFallback();
@@ -203,59 +195,46 @@ function playAudio(url) {
     clearSpeakingFallback();
     setRioSpeaking(false);
     sendAudioState(false);
-    showPlayPrompt(url);
+    pendingAudioUrl = url;
   };
 
-  if (!audioUnlocked) {
-    console.warn("[RIO] Audio locked until user interaction");
-    setRioSpeaking(false);
-    sendAudioState(false);
-    showPlayPrompt(url);
-    return;
-  }
   audioPlayer.play().catch(e => {
     console.warn("[RIO] Autoplay blocked:", e.message);
     clearSpeakingFallback();
     setRioSpeaking(false);
     sendAudioState(false);
-    showPlayPrompt(url);
+    pendingAudioUrl = url;
   });
 }
 
-let playPromptShown = false;
-
-function showPlayPrompt(url) {
-  if (playPromptShown) return;
-  playPromptShown = true;
-  openChat();
-  const btn = document.createElement("button");
-  btn.textContent = "▶ Play RIO response";
-  btn.className = "play-prompt-btn";
-  btn.onclick = () => {
-    playPromptShown = false;
-    audioUnlocked = true;
-    playAudio(url);
-    btn.remove();
-  };
-  const host = document.getElementById("playPromptHost");
-  if (host) host.appendChild(btn);
-}
-
 function sendText() {
+  if (!userInput) return;
   const text = userInput.value.trim();
   audioUnlocked = true;
+  flushPendingAudio();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-  openChat();
   ws.send(JSON.stringify({ type: "transcript", text }));
   userInput.value = "";
 }
 
-sendBtn.addEventListener("click", sendText);
-userInput.addEventListener("keydown", e => {
+if (sendBtn) sendBtn.addEventListener("click", sendText);
+if (userInput) {
+  userInput.addEventListener("keydown", e => {
+    audioUnlocked = true;
+    flushPendingAudio();
+    if (e.key === "Enter") sendText();
+  });
+}
+function noteUserActivation() {
   audioUnlocked = true;
-  if (e.key === "Enter") sendText();
-});
-document.addEventListener("click", () => { audioUnlocked = true; }, { once: true });
+  flushPendingAudio();
+}
+document.addEventListener("click", noteUserActivation, true);
+document.addEventListener("pointerdown", noteUserActivation, { capture: true, passive: true });
+document.addEventListener("touchstart", noteUserActivation, { capture: true, passive: true });
+
+/** Mic bridge calls this on 🎤 tap so mobile gets a gesture before async getUserMedia. */
+window.__rioNoteUserActivation = noteUserActivation;
 
 function setMicStatus(connected) {
   if (!micDot) return;

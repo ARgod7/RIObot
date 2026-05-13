@@ -53,49 +53,80 @@ def send_pose(port, rsv=90, lsv=90, rsh=90, lsh=90, re=90, le=90):
         print(f"Error on write: {e}")
         return False
 
-def smooth_wave(port, cycles=3, delay=1.0):
+def _sweep_elbows(
+    port,
+    rsv,
+    lsv,
+    rsh,
+    lsh,
+    re_a,
+    le_a,
+    re_b,
+    le_b,
+    steps,
+    step_delay,
+):
+    """Linearly interpolate elbows from (re_a, le_a) to (re_b, le_b)."""
+    for i in range(steps + 1):
+        t = i / steps
+        re = int(round(re_a + (re_b - re_a) * t))
+        le = int(round(le_a + (le_b - le_a) * t))
+        send_pose(port, rsv=rsv, lsv=lsv, rsh=rsh, lsh=lsh, re=re, le=le)
+        time.sleep(step_delay)
+
+
+def smooth_wave(port, cycles=0, step_delay=0.03, sweep_steps=30):
     """
-    Make both arms wave
+    Make both arms wave. Elbows sweep smoothly; motion repeats until stopped.
+
     Right arm: RSV=150, RE: 90->0->90
     Left arm: LSV=30, LE: 90->180->90
-    
+
     Args:
         port: Serial port object
-        cycles: Number of wave cycles (default 3)
-        delay: Time between poses in seconds (default 1.0)
+        cycles: Number of full wave cycles; 0 = run continuously until Ctrl+C
+        step_delay: Seconds between interpolated elbow steps
+        sweep_steps: How many steps per elbow sweep (higher = smoother, slower)
     """
-    print(f"Making wave motion for {cycles} cycles")
+    continuous = cycles == 0
+    if continuous:
+        print("Continuous wave — Ctrl+C to stop")
+    else:
+        print(f"Making wave motion for {cycles} cycles")
     print("Right arm: RSV=150°, RE: 90°->0°->90°")
     print("Left arm: LSV=30°, LE: 90°->180°->90°")
-    print(f"Delay: {delay} seconds between poses")
-    print("Press Ctrl+C to stop\n")
-    
+    print(f"Step delay: {step_delay}s ({sweep_steps} steps per sweep)\n")
+
     try:
-        # Move shoulders to position with elbows at 90
         print("Positioning shoulders...")
         send_pose(port, rsv=150, lsv=30, rsh=90, lsh=90, re=90, le=90)
         time.sleep(1.5)
-        
-        print(f"\nStarting wave motion!\n")
-        
-        for cycle in range(cycles):
-            print(f"Wave {cycle + 1}/{cycles}")
-            
-            # Pose 1: Elbows outward
-            send_pose(port, rsv=150, lsv=30, rsh=90, lsh=90, re=0, le=180)
-            time.sleep(delay)
-            
-            # Pose 2: Elbows back to center
-            send_pose(port, rsv=150, lsv=30, rsh=90, lsh=90, re=90, le=90)
-            time.sleep(delay)
-        
-        # Return to neutral position
+
+        print("Starting wave motion!\n")
+
+        cycle = 0
+        while True:
+            cycle += 1
+            if continuous:
+                print(f"Wave cycle {cycle}")
+            else:
+                print(f"Wave {cycle}/{cycles}")
+
+            _sweep_elbows(
+                port, 150, 30, 90, 90, 90, 90, 0, 180, sweep_steps, step_delay
+            )
+            _sweep_elbows(
+                port, 150, 30, 90, 90, 0, 180, 90, 90, sweep_steps, step_delay
+            )
+
+            if not continuous and cycle >= cycles:
+                break
+
         print("\nReturning to neutral position...")
         send_pose(port, rsv=90, lsv=90, rsh=90, lsh=90, re=90, le=90)
         time.sleep(1)
-        
         print("Wave complete!")
-        
+
     except KeyboardInterrupt:
         print("\n\nWave interrupted! Returning to neutral position...")
         send_pose(port, rsv=90, lsv=90, rsh=90, lsh=90, re=90, le=90)
@@ -109,23 +140,26 @@ def main():
         print(f"Error opening port: {e}")
         sys.exit(1)
     
-    print("This will make both arms wave smoothly and simultaneously")
-    print("Right arm: Shoulder up (150°), elbow sweeps 90°->0°->90°")
-    print("Left arm: Shoulder down (30°), elbow sweeps 90°->180°->90°\n")
+    print("Both arms wave with smooth elbow sweeps (repeats until you stop).")
+    print("Right: shoulder 150°, elbow 90°->0°->90°. Left: shoulder 30°, elbow 90°->180°->90°.")
+    print("Default is continuous (0 cycles); use Ctrl+C to stop.\n")
     
-    # Get user input
+    # Get user input (0 cycles = continuous until Ctrl+C)
     try:
-        cycles = int(input("Number of wave cycles (default 3): ") or "3")
-        delay = float(input("Delay between poses in seconds (default 1.0): ") or "1.0")
+        cycles = int(
+            input("Number of wave cycles (0 = continuous; default 0): ") or "0"
+        )
+        step_delay = float(
+            input("Delay per sweep step in seconds (default 0.03): ") or "0.03"
+        )
     except ValueError:
         print("Invalid input, using defaults")
-        cycles = 3
-        delay = 1.0
-    
+        cycles = 0
+        step_delay = 0.03
+
     print()
-    
-    # Perform the wave
-    smooth_wave(port, cycles=cycles, delay=delay)
+
+    smooth_wave(port, cycles=cycles, step_delay=step_delay)
     
     # Close port
     port.close()

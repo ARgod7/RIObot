@@ -46,6 +46,7 @@ except Exception:
 logger = logging.getLogger("FaceDetector")
 
 # ── Model config ──────────────────────────────────────────────────────────────
+
 MODEL_DIR  = Path(__file__).parent / "rio_models"
 MODEL_PATH = MODEL_DIR / "face_emotion.onnx"
 
@@ -350,8 +351,17 @@ class FaceEmotionDetector:
 
         joy      = smile_gate * 0.88 + max(0.0, squint-0.30)*0.10 + relaxed*0.06
         if smile_gate < 0.10: joy *= 0.30
-        sadness  = frown*0.60 + max(0.0, brow_raise - furrow*0.5)*0.20 + (1-wide_eyes)*0.20
-        fear     = wide_eyes*0.40 + brow_raise*furrow*0.35 + open_mouth*0.25
+
+        # Sadness: frown OR inner brow raise (oblique brows), soft eyes, no smile
+        # Don't require deep frown — even flat/slightly-down corners count
+        sadness  = frown*0.45 + brow_raise*0.30 + (1-wide_eyes)*0.15 + (1.0-smile_gate)*0.10
+        sadness  = max(0.0, sadness - smile_gate*0.60)  # smile suppresses sadness
+
+        # Fear: wide eyes are the primary cue; brow raise + open mouth boost it
+        # Lower the bar — wide eyes alone at 0.5 should read as fear
+        fear     = wide_eyes*0.50 + brow_raise*0.30 + open_mouth*0.20
+        fear     = max(0.0, fear - smile_gate*0.80)  # smile kills fear
+
         surprise = wide_eyes*0.35 + open_mouth*0.40 + relaxed*0.25
 
         # Anger: needs brow involvement
@@ -365,10 +375,10 @@ class FaceEmotionDetector:
 
         if smile_gate >= 0.14:
             joy = max(joy, 0.60 + min(0.35, smile_gate))
-            sadness *= 0.25; fear *= 0.30; disgust *= 0.30; surprise *= 0.30; anger = 0.0
+            sadness *= 0.20; fear *= 0.20; disgust *= 0.30; surprise *= 0.30; anger = 0.0
 
-        if smile_gate < 0.15 and max(sadness, fear, anger, disgust) > 0.35:
-            joy *= 0.45
+        if smile_gate < 0.15 and max(sadness, fear, anger, disgust) > 0.30:
+            joy *= 0.40
 
         return {k: min(1.0, v) for k, v in
                 [("joy",joy),("sadness",sadness),("fear",fear),
@@ -401,7 +411,12 @@ class FaceEmotionDetector:
         elif mc >= 0.25: mw, gw = 0.55, 0.45
         else:            mw, gw = 0.25, 0.75
 
-        fused = {k: mw*model.get(k,0.0) + gw*geo.get(k,0.0) for k in KEYS}
+        # FERPlus has a happiness bias — dampen model joy when geo doesn't agree
+        model_scores = {k: model.get(k, 0.0) for k in KEYS}
+        if model_scores.get("joy", 0) > 0.35 and geo.get("joy", 0) < 0.20:
+            model_scores["joy"] *= 0.50
+
+        fused = {k: mw*model_scores.get(k,0.0) + gw*geo.get(k,0.0) for k in KEYS}
         conf  = min(0.92, 0.50 + mc*0.40 + max(fused.values())*0.10)
         return fused, conf
 

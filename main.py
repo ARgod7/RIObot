@@ -46,7 +46,7 @@ from perception.perception_loop import (
 from rio_bridge.ws_server import get_latest_transcript, start_ws_server
 from memory.short_term_memory import get_summary, add_entry, hydrate_memory_from_file
 from cognition.orchestration.pipeline_manager import run_pipeline
-from cognition.agents.servo_agent import stop_alive_animation, close_serial
+from cognition.agents.servo_agent import stop_alive_animation, close_serial, resolve_emotion
 from rio_bridge.rio_client import call_rio_engine, send_expression, send_audio_to_browser
 from tts.gtts_wrapper import speak
 from rio_bridge.ws_server import send_response_to_browser
@@ -54,6 +54,7 @@ from config import EMOTION_WS_BROADCAST_MIN_S
 from memory.short_term_memory import reset_memory
 from memory.persistent_memory import set_user_name
 from config import CLEAR_MEMORY_ON_START
+from config import DISABLE_CHAT
 
 # Logger endpoint for HTTP logger server (Node)
 LOGGER_URL = os.getenv("LOGGER_URL", "http://127.0.0.1:4000").rstrip('/')
@@ -386,6 +387,11 @@ def main():
                     )
                     continue
 
+                if DISABLE_CHAT:
+                    logger.info("Chat disabled; ignoring transcript.")
+                    time.sleep(0.05)
+                    continue
+
                 # Step 3c: Call Rio engine via rio_client
                 rio_response = call_rio_engine(stimulus_dict)
                 try:
@@ -419,11 +425,17 @@ def main():
                 if response_text:
                     lang = "hi" if has_hindi(response_text) else "en"
                     logger.info(f"Speaking ({lang}): {response_text[:60]}...")
+                    resolved_emotion = resolve_emotion(expression_intent)
+                    emotion_value = float((stimulus_dict.get("emotions") or {}).get(resolved_emotion, 0.0))
+                    intensity = max(0.0, min(1.0, emotion_value))
                     audio_url = speak(
                         text=response_text,
                         lang=lang,
                         pitch=tts_params.get("pitch", 1.0),
                         speed=tts_params.get("speed", 0.95),
+                        emotion=resolved_emotion,
+                        intensity=intensity,
+                        talking=True,
                     )
 
 

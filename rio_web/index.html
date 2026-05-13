@@ -7,7 +7,7 @@
   <meta http-equiv="Expires" content="0" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RIO — Expressions</title>
-  <link rel="stylesheet" href="/static/main.css?v=20260511-3">
+  <link rel="stylesheet" href="/static/main.css?v=20260513-no-audio-pill">
 </head>
 <body>
   <main class="page">
@@ -26,34 +26,18 @@
       <span class="mic-on-label" hidden>On</span>
     </button>
 
-    <button type="button" id="chatToggle" class="chat-toggle" aria-controls="chatPanel" aria-expanded="false">
-      Chat
-    </button>
+    <div class="rio-status" aria-live="polite">
+      <span id="micDot" class="mic-dot off" title="Connecting..."></span>
+      <span id="emotionState" class="emotion-chip">Warm and receptive</span>
+    </div>
+    <div id="micHint" class="mic-hint"></div>
 
-    <aside id="chatPanel" class="chat-panel" aria-label="Conversation with RIO" hidden>
-      <header class="chat-panel-header">
-        <span class="chat-panel-title">Chat</span>
-        <span id="emotionState" class="emotion-chip">Warm and receptive</span>
-        <button type="button" id="chatClose" class="chat-close" title="Close chat">×</button>
-      </header>
-      <div id="conversationLog" class="conversation-log">
-        <p id="logPlaceholder" class="log-placeholder">Tap Chat to talk with RIO.</p>
-      </div>
-      <div id="micHint" class="mic-hint" aria-live="polite"></div>
-      <div id="playPromptHost"></div>
-      <section class="chat-input-row" aria-label="Type a message">
-        <span id="micDot" class="mic-dot off" title="Connecting..."></span>
-        <input type="text" id="userInput" placeholder="Tell me how you're feeling..." autocomplete="off" />
-        <button id="sendBtn" type="button">Send</button>
-      </section>
-    </aside>
-
-    <audio id="audioPlayer" style="display:none"></audio>
+    <audio id="audioPlayer" style="display:none" playsinline></audio>
 
     <p class="footer-hint">Open <a href="/details">/details</a> for live perception debug.</p>
   </main>
 
-  <script src="/static/app.js?v=20260511-3"></script>
-  <script src="/static/mic_bridge.js?v=20260511-3"></script>
+  <script src="/static/app.js?v=20260513-no-audio-pill"></script>
+  <script src="/static/mic_bridge.js?v=20260513-no-audio-pill"></script>
 </body>
 </html>

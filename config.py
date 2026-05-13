@@ -15,7 +15,8 @@ GEMINI_MODEL: str = "gemini-2.5-flash"
 # ============================================================
 # LLM PROVIDER TOGGLE (Easy switch between Groq, Gemini, Ollama)
 # ============================================================
-LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq")  # "groq" | "gemini" | "ollama"
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama")  # "groq" | "gemini" | "ollama"
+DISABLE_CHAT: bool = os.getenv("DISABLE_CHAT", "false").lower() == "true"
 
 # Groq API (FREE - Fast, Cloud) - uncomment if available
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
@@ -26,16 +27,16 @@ GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL: str = "gemini-2.5-flash"
 
 # Ollama (FREE - Local, No API, Always Works!)
-OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://0.0.0.0:11434")
+OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "mistral:7b")  # ~4.1GB, bilingual Hindi/English
 OLLAMA_TIMEOUT: float = 10.0  # Ollama needs a bit more time
 OLLAMA_STREAM: bool = False
 
 RIO_PORT: int = int(os.getenv("RIO_PORT", "5000"))
-RIO_BASE_URL: str = f"http://0.0.0.0:{RIO_PORT}"
+RIO_BASE_URL: str = f"http://127.0.0.1:{RIO_PORT}"
 
 # Rio Bridge (JS engine) — used by rio_client.py
-RIO_BRIDGE_URL: str = RIO_BASE_URL          # http://0.0.0.0:{RIO_PORT}
+RIO_BRIDGE_URL: str = RIO_BASE_URL          # http://127.0.0.1:{RIO_PORT}
 RIO_BRIDGE_TIMEOUT: float = 5.0
 RIO_BRIDGE_RETRIES: int = 3
 DIALOGUE_TIMEOUT_S: float = 12.0
