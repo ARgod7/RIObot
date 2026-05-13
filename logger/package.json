@@ -5,7 +5,11 @@
   "main": "logger.js",
   "scripts": {
     "start": "node logger.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node test-logger.js 10",
+    "tocsv": "node tocsv.js",
+    "tocsv:emotion": "node tocsv.js emotion_update.log emotion_update.csv",
+    "tocsv:response": "node tocsv.js rio_response.log rio_response.csv",
+    "tocsv:stimulus": "node tocsv.js stimulus.log stimulus.csv"
   },
   "author": "",
   "license": "ISC",
