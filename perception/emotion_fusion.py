@@ -126,9 +126,9 @@ class SadnessAssessment:
 
 # v3: voice weight raised (text transformer is strong anger/fear signal)
 DEFAULT_WEIGHTS = {
-    "face":    0.60,
-    "posture": 0.05,
-    "voice":   0.35,
+    "face":    0.58,
+    "posture": 0.12,
+    "voice":   0.30,
 }
 
 

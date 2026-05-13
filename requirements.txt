@@ -13,7 +13,10 @@ uvicorn>=0.24.0
 python-multipart>=0.0.6
 
 # Perception & Sensors
-mediapipe>=0.10.9
+# FaceMesh / Pose use mediapipe.solutions. Newer PyPI wheels (e.g. 0.10.30+) are often Tasks-only
+# on Windows — import fails with "cannot import name 'solutions'". 0.10.21 is the last line that
+# matches this codebase; upgrade path is migrating to MediaPipe Tasks.
+mediapipe==0.10.21
 opencv-python>=4.9.0
 
 # TTS (free options)

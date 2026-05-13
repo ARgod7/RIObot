@@ -71,6 +71,13 @@ _NAME_PATTERNS = [
     re.compile(rf"\bcall me\s+({_NAME_TOKEN}(?:\s+{_NAME_TOKEN})?)\b", re.IGNORECASE),
 ]
 
+# Reject "I'm just very angry" → "Just Very" false positives
+_NAME_BLOCKLIST = frozenset({
+    "just", "very", "really", "quite", "so", "not", "only", "also", "still", "even",
+    "feeling", "angry", "mad", "upset", "sad", "happy", "fine", "okay", "ok", "sorry",
+    "trying", "doing", "being", "getting", "little", "bit", "kind", "sort",
+})
+
 
 def _neutral_emotions() -> dict:
     """Six-way neutral vector for placeholders (details UI only counts Ekman keys)."""
@@ -208,6 +215,11 @@ def _extract_user_name(text: str) -> str | None:
             parts = name.split()
             if len(parts) > 2:
                 parts = parts[:2]
+            lowered = [p.lower() for p in parts]
+            if any(p in _NAME_BLOCKLIST for p in lowered):
+                return None
+            if all(p in _NAME_BLOCKLIST for p in lowered):
+                return None
             return " ".join(p.capitalize() for p in parts)
     return None
 
@@ -416,6 +428,7 @@ def main():
                     expression_intent=expression_intent,
                     intervention_intent=str(_intent),
                     emotion_before=emotion_before,
+                    activity_used=pipeline_result.get("activity_used"),
                 )
 
                 # Step 3i: Debug print

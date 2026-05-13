@@ -8,6 +8,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import json
 import os
+import re
 
 @dataclass
 class EmotionalExchange:
@@ -21,9 +22,36 @@ class EmotionalExchange:
     post_response_valence: float  # emotion AFTER our response
     delta: float  # improvement: post - pre
     intervention_effective: bool  # did it help?
+    activity_used: str = "unknown"
+    commitment_hook: str = ""  # narrative promise extracted from rio_response (for next-turn fulfillment)
 
     def to_dict(self):
         return asdict(self)
+
+
+_COMMITMENT_SNIPPET_RES = [
+    re.compile(r"\b(?:i['']ll|i will)\s+tell\s+you\b[^\n.!?]*[.!?]", re.I),
+    re.compile(r"\blet\s+me\s+tell\s+you\b[^\n.!?]*[.!?]", re.I),
+    re.compile(r"\bhere(?:'s| is)\s+(?:a\s+)?(?:tiny\s+|little\s+|short\s+)?(?:story|tale)\b[^\n.!?]*[.!?]", re.I),
+    re.compile(r"\bi['']ll\s+share\b[^\n.!?]*[.!?]", re.I),
+    re.compile(r"\b(?:two|2)\s+sentences?\s+(?:of\s+)?(?:a\s+)?story\b[^\n.!?]*[.!?]", re.I),
+]
+
+
+def extract_commitment_hook(text: str) -> str:
+    """If RIO promised concrete content (story, tale, etc.), return that snippet for the next turn."""
+    if not (text or "").strip():
+        return ""
+    for rx in _COMMITMENT_SNIPPET_RES:
+        m = rx.search(text.strip())
+        if m:
+            return m.group(0).strip()[:280]
+    lower = text.lower()
+    if "tiny story" in lower or "quick story" in lower:
+        for sent in re.split(r"(?<=[.!?])\s+", text.strip()):
+            if "story" in sent.lower():
+                return sent.strip()[:280]
+    return ""
 
 
 class ShortTermMemory:
@@ -41,7 +69,9 @@ class ShortTermMemory:
         emotion_valence: float,
         rio_intent: str,
         rio_response: str,
-        post_response_valence: float
+        post_response_valence: float,
+        *,
+        activity_used: str = "unknown",
     ) -> EmotionalExchange:
         """Record one exchange"""
 
@@ -57,7 +87,9 @@ class ShortTermMemory:
             rio_response=rio_response,
             post_response_valence=post_response_valence,
             delta=delta,
-            intervention_effective=effective
+            intervention_effective=effective,
+            activity_used=activity_used or "unknown",
+            commitment_hook=extract_commitment_hook(rio_response),
         )
 
         self.exchanges.append(exchange)
@@ -179,6 +211,10 @@ def hydrate_memory_from_file(filepath: str = "memory/short_term_memory.json") ->
     memory.exchanges.clear()
     for row in exchanges_raw[-memory.size :]:
         try:
+            resp = str(row.get("rio_response", ""))
+            hook = str(row.get("commitment_hook", ""))
+            if not hook:
+                hook = extract_commitment_hook(resp)
             memory.exchanges.append(
                 EmotionalExchange(
                     timestamp=str(row.get("timestamp", "")),
@@ -186,10 +222,12 @@ def hydrate_memory_from_file(filepath: str = "memory/short_term_memory.json") ->
                     user_emotion=str(row.get("user_emotion", "neutral")),
                     emotion_valence=float(row.get("emotion_valence", 0.0)),
                     rio_intent=str(row.get("rio_intent", "calm")),
-                    rio_response=str(row.get("rio_response", "")),
+                    rio_response=resp,
                     post_response_valence=float(row.get("post_response_valence", 0.0)),
                     delta=float(row.get("delta", 0.0)),
                     intervention_effective=bool(row.get("intervention_effective", False)),
+                    activity_used=str(row.get("activity_used", "unknown")),
+                    commitment_hook=hook,
                 )
             )
         except (TypeError, ValueError, KeyError):
@@ -220,17 +258,31 @@ def get_summary(n: Optional[int] = None) -> str:
     except Exception:
         pass
 
+    # Unfulfilled narrative promise from RIO's *previous* reply — must be honored this turn.
+    if len(memory.exchanges) >= 1:
+        prev = memory.exchanges[-1]
+        if getattr(prev, "commitment_hook", ""):
+            lines.append(
+                "⚠ FULFILL FIRST — you promised this last turn; deliver it fully in response_text "
+                "before offering any NEW activity or pivot:\n"
+                f'   "{prev.commitment_hook}"'
+            )
+            lines.append("")
+
     take = n if n is not None else memory.size
     take = max(1, min(take, len(memory.exchanges)))
     recent = memory.exchanges[-take:]
     for ex in recent:
+        tag = getattr(ex, "activity_used", "unknown") or "unknown"
         lines.append(f"User: {ex.user_input[:200]}")
-        lines.append(f"RIO (intervention {ex.rio_intent}): {ex.rio_response[:200]}")
+        lines.append(
+            f"RIO (intervention {ex.rio_intent}) [activity:{tag}]: {ex.rio_response[:220]}"
+        )
         lines.append(f"User dominant emotion: {ex.user_emotion} (valence {ex.emotion_valence:.2f} → {ex.post_response_valence:.2f})")
         lines.append("")
     lines.append(
-        "Use this history: recall themes the user named, avoid repeating the same reassurance verbatim, "
-        "and build continuity like a skilled therapist."
+        "Use this history: recall themes the user named, honor any ⚠ FULFILL FIRST promise, "
+        "avoid repeating the same activity tag twice in a row, and build continuity."
     )
     return "\n".join(lines)
 
@@ -242,6 +294,7 @@ def add_entry(
     emotion_before: Dict[str, float] = None,
     emotion_after: Dict[str, float] = None,
     intervention_intent: Optional[str] = None,
+    activity_used: Optional[str] = None,
 ) -> EmotionalExchange:
     """Record one exchange to short-term memory and persist to disk."""
     memory = get_short_term_memory()
@@ -267,6 +320,7 @@ def add_entry(
         rio_intent=rio_intent,
         rio_response=response_text,
         post_response_valence=post_response_valence,
+        activity_used=(activity_used if activity_used is not None else "unknown"),
     )
     save_memory_to_file()
     return ex

@@ -45,6 +45,8 @@ from config import (
     FUSED_EMOTION_LOG_ENABLED,
     ENABLE_VOICE_DETECTOR,
     FUSION_SMOOTH_ALPHA,
+    EMOTION_PERCEPTION_DAMPING,
+    dampen_emotion_vector,
 )
 from perception.emotion_fusion import EmotionFusionEngine, EmotionVector
 
@@ -219,7 +221,11 @@ class PerceptionLoop:
         if self.enable_posture:
             try:
                 from perception.posture_detector import PostureEmotionDetector
-                self._posture_detector = PostureEmotionDetector(camera_index=self.camera_index)
+                # Share the face detector's capture — a second VideoCapture on the same index fails on many systems.
+                self._posture_detector = PostureEmotionDetector(
+                    camera_index=self.camera_index,
+                    open_camera=False,
+                )
                 logger.info("PostureEmotionDetector initialised.")
             except Exception as e:
                 logger.warning(f"PostureEmotionDetector unavailable: {e}")
@@ -346,6 +352,10 @@ class PerceptionLoop:
 
              # ── 6. Build StimulusObject ──────────────────────────────────
             stimulus_obj = self._fusion.build_stimulus(fused, label="user_emotional_state")
+            if EMOTION_PERCEPTION_DAMPING < 0.999:
+                stimulus_obj.emotions = dampen_emotion_vector(
+                    stimulus_obj.emotions, EMOTION_PERCEPTION_DAMPING
+                )
 
             # Only commit emotion/stimulus outputs every N frames.
             # (Main.py uses `get_latest_stimulus()` when the user speaks.)

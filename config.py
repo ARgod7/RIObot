@@ -74,6 +74,45 @@ FUSION_SMOOTH_ALPHA: float = float(os.getenv("FUSION_SMOOTH_ALPHA", "0.55"))
 
 # Min seconds between emotion WebSocket pushes from main.py (details dashboard)
 EMOTION_WS_BROADCAST_MIN_S: float = float(os.getenv("EMOTION_WS_BROADCAST_MIN_S", "0.15"))
+
+# ── Emotion expressiveness tuning (lower = calmer / subtler) ─────────────────
+# Perception: blend fused emotion scores toward a flat mix (1.0 = detectors as-is,
+# 0.5 = halfway toward uniform, 0.0 = fully uniform — rarely useful).
+EMOTION_PERCEPTION_DAMPING: float = float(os.getenv("EMOTION_PERCEPTION_DAMPING", "0.75"))
+
+# Dialogue: scale the dominant-value used for arc instructions & prompt intensity (0–1).
+# <1.0 makes the model treat states as milder (fewer “high distress” arc branches).
+EMOTION_ARC_INTENSITY_SCALE: float = float(os.getenv("EMOTION_ARC_INTENSITY_SCALE", "0.8"))
+
+# TTS: 1.0 = full pitch/speed ranges; 0.0 = locked to calm reference (pitch≈1.0, speed≈0.95).
+TTS_EXPRESSIVENESS: float = float(os.getenv("TTS_EXPRESSIVENESS", "1.0"))
+
+# Servo / pose intensity index is 0–4 from user emotion; scale down for gentler motion.
+SERVO_INTENSITY_SCALE: float = float(os.getenv("SERVO_INTENSITY_SCALE", "1.0"))
+
+# Minimum fused dominant value before pipeline overrides expression with user mirroring.
+# Higher = mirror less often (RIO stays more “neutral lead”).
+EMOTION_MIRROR_THRESHOLD: float = float(os.getenv("EMOTION_MIRROR_THRESHOLD", "0.3"))
+
+
+def dampen_emotion_vector(emotions: dict, damping: float) -> dict:
+    """
+    Pull emotion scores toward a uniform mix so peaks read as milder.
+
+    damping=1.0 → unchanged (only clamped to [0, 1]).
+    damping=0.0 → every key becomes 1/n (flat).
+    """
+    if not emotions:
+        return {}
+    d = max(0.0, min(1.0, float(damping)))
+    keys = list(emotions.keys())
+    uniform = 1.0 / len(keys)
+    if d >= 0.999:
+        return {k: max(0.0, min(1.0, float(v))) for k, v in emotions.items()}
+    return {
+        k: max(0.0, min(1.0, uniform + d * (float(emotions[k]) - uniform)))
+        for k in keys
+    }
 CLEAR_MEMORY_ON_START: bool = os.getenv("CLEAR_MEMORY_ON_START", "true").lower() == "true"
 WEBCAM_INDEX: int = 0
 MIC_INDEX: int = int(os.getenv("MIC_INDEX", "0"))  # Auto-detect default microphone. Set MIC_INDEX=1 if you have multiple mics

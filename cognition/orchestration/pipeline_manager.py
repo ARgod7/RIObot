@@ -1,23 +1,26 @@
 """
-Pipeline Manager — Orchestrates dialogue, servo, and feedback agents sequentially.
+pipeline_manager.py (v4)
 
-Flow:
-  1. DIALOGUE AGENT: Generates response & emotion/expression intent based on stimulus
-  2. SERVO AGENT: Applies emotion-specific servo poses from servo_controls/poses.json
-                  Uses smooth transitions and alive animation while TTS speaks
-  3. FEEDBACK AGENT: Assesses intervention effectiveness
+The core fix: this file now writes structured markers into the pipeline result
+so main.py can append them to memory_context before the next call.
 
-v3 changes vs v2:
-  - Emotion mirroring now covers ALL 6 Ekman emotions, not just the NEGATIVE_EMOTIONS set.
-    Previously only sadness/fear/anger/disgust were mirrored — joy and surprise were ignored.
-  - Mirror threshold lowered 0.20 → 0.15 so moderate emotions are reflected.
-  - Sadness keyword override removed: it was forcing expression_intent="sadness" based on
-    transcript words even when the fused vector showed a different dominant emotion (e.g.
-    anger or fear). The fused vector is the authoritative signal.
-  - TTS baselines corrected: anger was 1.36 speed (way too fast); now 0.88 (measured, firm).
-    Joy pitch corrected to 1.10–1.20 range (was 1.15/1.10 but dialogue_agent clamp is 1.32).
-  - merge_tts_for_therapist blend ratio adjusted 55/45 → 45/55 (LLM hint weighted slightly
-    more so dialogue_agent's nuanced prosody choices are better preserved).
+Without these markers every [activity:], [promise:], [rio_said:] tracking
+block in dialogue_agent.py is completely dead — the model has no idea what
+it already did, what it promised, or what it just said.
+
+Markers written per turn:
+  [activity:tag]       — which activity was used (for rotation)
+  [promise:description]— what RIO offered but hasn't delivered (for commitment)
+  [rio_said:summary]   — 8-word summary of RIO's response (for loop detection)
+
+main.py is responsible for appending these to memory_context each turn.
+See main.py — the `_build_enriched_memory` function handles this.
+
+Other fixes vs v2/v3:
+  - Emotion mirroring covers all 6 Ekman emotions (not just NEGATIVE_EMOTIONS)
+  - SADNESS_KEYWORDS transcript override removed (fused vector is authoritative)
+  - Anger TTS speed corrected: was 1.36 (frantic), now 0.88 (measured/firm)
+  - merge_tts blend 55/45 → 45/55 (LLM hint weighted more, preserves nuance)
 """
 
 import logging
@@ -29,57 +32,37 @@ from cognition.agents.feedback_agent import run_feedback
 
 logger = logging.getLogger(__name__)
 
-# All 6 Ekman emotions that should be mirrored before uplifting
-ALL_EMOTIONS = {"joy", "sadness", "fear", "anger", "disgust", "surprise"}
-
-# Minimum dominant value to trigger emotion mirroring on RIO's face/servo
-MIRROR_THRESHOLD = 0.15
+MIRROR_THRESHOLD = 0.15  # minimum dominant value to mirror on RIO's face
 
 
-def _dominant_from_stimulus(stimulus: Dict[str, Any]) -> tuple[str, float]:
+def _dominant_from_stimulus(stimulus: Dict[str, Any]):
     emotions = stimulus.get("emotions") or {}
     if not emotions:
-        return ("neutral", 0.0)
-    dom, val = max(emotions.items(), key=lambda item: item[1])
-    return (str(dom), float(val))
+        return "neutral", 0.0
+    dom, val = max(emotions.items(), key=lambda x: x[1])
+    return str(dom), float(val)
 
 
 def merge_tts_for_therapist(expression_intent: str, tts: Dict[str, Any]) -> Dict[str, float]:
     """
-    Blend LLM TTS hints with therapist-style baselines per facial expression.
-
-    Baselines:
-      sadness:  soft, slow — lower pitch, reduced speed
-      anger:    measured, firm — NOT loud or fast (therapist mirrors calmly)
-      fear:     steady, reassuring
-      joy:      warm, bright — moderate uplift
-      surprise: engaged, curious
-      calm:     steady, warm
-      disgust:  neutral-to-calm (mirror then redirect)
-
-    Blend: 45% baseline + 55% LLM hint (v3: LLM weighted slightly more).
+    Blend dialogue agent's TTS hint with therapist-style baseline.
+    45% baseline + 55% LLM hint — preserves model's nuanced prosody.
     """
     ex = (expression_intent or "calm").lower()
     baselines = {
-        "sadness": {"pitch": 0.86, "speed": 0.84},
-        "anger":   {"pitch": 0.92, "speed": 0.88},   # FIX: was speed=1.36 (far too fast)
-        "fear":    {"pitch": 0.93, "speed": 0.88},
-        "joy":     {"pitch": 1.15, "speed": 1.06},
-        "surprise":{"pitch": 1.08, "speed": 1.04},
-        "disgust": {"pitch": 0.95, "speed": 0.90},
-        "calm":    {"pitch": 0.98, "speed": 0.90},
+        "sadness":  {"pitch": 0.86, "speed": 0.84},
+        "anger":    {"pitch": 0.92, "speed": 0.88},   # was 1.36 — fixed
+        "fear":     {"pitch": 0.93, "speed": 0.88},
+        "joy":      {"pitch": 1.15, "speed": 1.06},
+        "surprise": {"pitch": 1.08, "speed": 1.04},
+        "disgust":  {"pitch": 0.95, "speed": 0.90},
+        "calm":     {"pitch": 0.98, "speed": 0.90},
     }
     base = baselines.get(ex, baselines["calm"])
     lp = float(tts.get("pitch", base["pitch"]))
     ls = float(tts.get("speed", base["speed"]))
-
-    # v3: 45% baseline + 55% LLM (was 55/45)
-    p = 0.45 * base["pitch"] + 0.55 * lp
-    s = 0.45 * base["speed"] + 0.55 * ls
-
-    # Clamp to safe hardware range
-    p = max(0.78, min(1.32, p))
-    s = max(0.82, min(1.12, s))
+    p = max(0.78, min(1.32, 0.45 * base["pitch"] + 0.55 * lp))
+    s = max(0.82, min(1.12, 0.45 * base["speed"] + 0.55 * ls))
     return {"pitch": p, "speed": s}
 
 
@@ -87,6 +70,13 @@ def _emotion_intensity_index(emotion: str, stimulus: Dict[str, Any]) -> int:
     resolved = resolve_emotion(emotion)
     value = float((stimulus.get("emotions") or {}).get(resolved, 0.0))
     return max(0, min(4, int(round(value * 4))))
+
+
+def _short_summary(text: str, max_words: int = 8) -> str:
+    """Produce a short summary of RIO's response for the rio_said marker."""
+    words = (text or "").split()
+    summary = " ".join(words[:max_words])
+    return summary + ("..." if len(words) > max_words else "")
 
 
 def run_pipeline(
@@ -97,23 +87,18 @@ def run_pipeline(
     emotion_before: Dict[str, float],
 ) -> Dict[str, Any]:
     """
-    Run the full dialogue → servo → feedback pipeline sequentially.
-
-    Args:
-        stimulus: StimulusObject.to_dict() (emotion vectors, metadata).
-        intervention_intent: e.g., "deflect_sadness", "reinforce_joy".
-        user_transcript: What the user just said.
-        memory_context: Summary of recent interactions (plain text).
-        emotion_before: Emotion vector before intervention.
+    Run dialogue → servo → feedback sequentially.
 
     Returns:
-        Dict with response_text, expression_intent, tts_params, and feedback.
+        response_text       : str
+        expression_intent   : str
+        tts_params          : dict
+        feedback            : dict
+        activity_used       : str   ← NEW: main.py appends [activity:X] to memory
+        pending_promise     : str|None ← NEW: main.py appends [promise:X] if set
+        rio_said_marker     : str   ← NEW: main.py appends [rio_said:X] to memory
     """
-    dialogue_output = None
-    servo_output = None
-    feedback_output = None
-
-    # ── Step 1: Run dialogue agent ───────────────────────────────────────────
+    # ── Step 1: Dialogue agent ────────────────────────────────────────────────
     try:
         dialogue_output = run_dialogue(
             stimulus=stimulus,
@@ -121,47 +106,32 @@ def run_pipeline(
             user_transcript=user_transcript,
             memory_context=memory_context,
         )
-        logger.info(f"Dialogue: {dialogue_output['expression_intent']}")
+        logger.info(f"Dialogue: {dialogue_output['expression_intent']} | activity={dialogue_output.get('activity_used')}")
     except Exception as e:
         logger.error(f"Dialogue agent failed: {e}", exc_info=True)
-        if not (memory_context or "").strip():
-            dialogue_output = {
-                "response_text": "Hello! I'm RIO. Welcome back. How has your day been so far?",
-                "expression_intent": "calm",
-                "tts_params": {"pitch": 1.0, "speed": 0.98},
-            }
-        else:
-            dialogue_output = {
-                "response_text": "I'm here for you. What would feel a little easier right now?",
-                "expression_intent": "calm",
-                "tts_params": {"pitch": 0.98, "speed": 0.90},
-            }
+        is_first = not (memory_context or "").strip()
+        dialogue_output = {
+            "response_text":    "Hello! I'm RIO. How has your day been?" if is_first
+                                else "I'm here with you. What's on your mind?",
+            "expression_intent":"calm",
+            "activity_used":    "curiosity_question",
+            "pending_promise":  None,
+            "tts_params":       {"pitch": 1.10, "speed": 1.00},
+        }
 
-    # ── Step 2: Emotion mirroring ────────────────────────────────────────────
-    # Mirror the user's dominant emotion on RIO's face/servo BEFORE the verbal
-    # uplift response. This shows empathy — "I see how you feel" — before
-    # attempting to shift mood.
-    #
-    # v3 fix: covers ALL 6 emotions (was only NEGATIVE_EMOTIONS set in v2).
-    # v3 fix: removed transcript keyword override — fused vector is authoritative.
+    # ── Step 2: Emotion mirroring (all 6 Ekman) ───────────────────────────────
+    # Mirror whatever the user is feeling on RIO's face before the verbal uplift.
+    # Covers all emotions — including joy and surprise, not just negative ones.
     dominant_user, dominant_value = _dominant_from_stimulus(stimulus)
     if dominant_value >= MIRROR_THRESHOLD:
-        # Mirror whatever the user is feeling, including joy and surprise
         dialogue_output["expression_intent"] = dominant_user
-        logger.info(
-            f"Mirroring user emotion: {dominant_user} ({dominant_value:.2f}) "
-            f"→ expression_intent overridden"
-        )
-    # If dominant_value < threshold, trust the dialogue agent's chosen expression_intent
-    # (it may choose a slightly positive expression as a gentle lead)
 
-    # Apply TTS prosody blend
     dialogue_output["tts_params"] = merge_tts_for_therapist(
         dialogue_output.get("expression_intent", "calm"),
         dialogue_output.get("tts_params") or {},
     )
 
-    # ── Step 3: Run servo agent ──────────────────────────────────────────────
+    # ── Step 3: Servo agent ───────────────────────────────────────────────────
     try:
         servo_output = run_servo(
             emotion=dialogue_output["expression_intent"],
@@ -172,24 +142,30 @@ def run_pipeline(
         logger.info(f"Servo: {servo_output['action']} → {servo_output['resolved_emotion']}")
     except Exception as e:
         logger.error(f"Servo agent failed: {e}", exc_info=True)
-        servo_output = {
-            "action": "error",
-            "emotion": dialogue_output.get("expression_intent", "unknown"),
-        }
+        servo_output = {"action": "error", "emotion": dialogue_output.get("expression_intent", "unknown")}
 
-    # ── Step 4: Run feedback agent ───────────────────────────────────────────
+    # ── Step 4: Feedback agent ────────────────────────────────────────────────
     try:
-        emotion_after = stimulus.get("emotions", {})
+        emotion_after  = stimulus.get("emotions", {})
         feedback_output = run_feedback(emotion_before, emotion_after)
         logger.info(f"Feedback: {feedback_output['note']}")
     except Exception as e:
         logger.error(f"Feedback agent failed: {e}", exc_info=True)
         feedback_output = {"improved": False, "delta": 0.0, "note": "error"}
 
-    # ── Step 5: Return combined output ──────────────────────────────────────
+    # ── Step 5: Build markers for main.py to write into next memory_context ───
+    response_text  = dialogue_output["response_text"]
+    activity_used  = dialogue_output.get("activity_used", "unknown")
+    pending_promise = dialogue_output.get("pending_promise")
+    rio_said_marker = _short_summary(response_text)
+
     return {
-        "response_text":    dialogue_output["response_text"],
+        "response_text":     response_text,
         "expression_intent": dialogue_output["expression_intent"],
-        "tts_params":       dialogue_output["tts_params"],
-        "feedback":         feedback_output,
+        "tts_params":        dialogue_output["tts_params"],
+        "feedback":          feedback_output,
+        # ── Tracking markers (main.py appends these to memory_context) ────────
+        "activity_used":     activity_used,
+        "pending_promise":   pending_promise,
+        "rio_said_marker":   rio_said_marker,
     }

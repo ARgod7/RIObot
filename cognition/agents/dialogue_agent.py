@@ -1,164 +1,180 @@
 """
-Dialogue Agent — CrewAI agent for RIO's warm, empathetic conversations.
+dialogue_agent.py (v5)
 
-Receives emotion stimulus, intervention intent, user transcript, and memory context.
-Outputs warm response text, expression intent, and TTS parameters.
+Bugs fixed from conversation log:
 
-Key design principles:
-- Emotional ARC: actively move the user from negative → positive across turns
-- Hard-banned: breathing scripts, mountain imagery, counting exercises, "name 3 things"
-- Rotation enforced: extract used_activities from memory_context and avoid them
-- TTS ranges consistent between prompt and clamp logic
+1. COMMITMENT NEVER DELIVERED
+   RIO said "I've got a story about a funny cat" then pivoted every turn.
+   Fix: pipeline_manager extracts `pending_promise` from dialogue output and
+   passes it back as a structured marker next turn. This file enforces it as
+   the single highest-priority instruction when present.
+
+2. NAME PARSED FROM EMOTIONAL PHRASE  ("Just Very" from "just very angry")
+   Fix: Explicit rule + main.py's _extract_user_name() already guards this,
+   but the prompt now hard-blocks name extraction from emotional context.
+
+3. EXECUTE vs SUGGEST LOOP
+   RIO kept saying "want to hear a story?" then never telling it.
+   Fix: Activity descriptions now say "DO IT RIGHT NOW inline in response_text".
+   The activity is PERFORMED in the response, not announced.
+
+4. TRACKING MARKERS NEVER WRITTEN → loop detection dead
+   Fix: `activity_used` and `pending_promise` are returned in the JSON.
+   pipeline_manager writes them as [activity:...] and [promise:...] markers
+   into memory_context before the next call. See pipeline_manager.py.
+
+5. USER REFUSAL IGNORED
+   Fix: Refusal signals trigger a COMPLETELY_DIFFERENT activity, enforced
+   by the situation block being the first instruction the model sees.
+
+6. ANGER NOT VALIDATED BEFORE PIVOT
+   Fix: Anger arc requires one beat of direct validation before any redirect.
 """
 
 import json
 import logging
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from crewai import Agent, Task
 from cognition.llm_provider import get_llm
 
 logger = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────
-# Constants
-# ──────────────────────────────────────────────
+# ── Constants ─────────────────────────────────────────────────────────────────
 
 VALID_EMOTIONS = ["joy", "sadness", "calm", "surprise", "fear", "anger"]
 
-# Activities that are overused / explicitly banned
-BANNED_ACTIVITIES = [
-    "breathing", "breath", "inhale", "exhale",
-    "mountain", "imagine a mountain", "visualise", "visualize",
-    "name three things", "name 3 things", "grounding exercise",
-    "count to", "count slowly", "54321", "5-4-3-2-1",
-    "progressive muscle", "body scan",
+BANNED_PHRASES = [
+    "breathing exercise", "deep breath", "breathe deeply", "let's breathe",
+    "inhale", "exhale", "mountain", "visualise", "visualize", "happy place",
+    "safe place", "name three things", "name 3 things", "grounding exercise",
+    "count to", "5-4-3-2-1", "54321", "progressive muscle", "body scan",
+    "mindfulness exercise", "let me guide you", "let's take a breath",
+    "take a moment", "close your eyes",
 ]
 
-# Pool of varied engagement activities RIO can rotate through
-ACTIVITY_POOL = [
-    "share_memory",        # ask about a fond memory
-    "quick_choice",        # give user a small binary choice (tea vs chai, window vs music)
-    "tiny_story",          # start a 2-sentence story, ask them to continue
-    "light_joke",          # land a gentle, age-appropriate joke
-    "gratitude_prompt",    # single specific gratitude (not a list)
-    "gentle_stretch",      # describe one simple movement (neck roll, shoulder shrug)
-    "curiosity_question",  # ask something genuinely curious about their life/past
-    "compliment_anchor",   # point out something specific and positive about them
-    "song_memory",         # ask about a song that takes them back
-    "food_memory",         # ask about a favourite dish / recipe
-    "nature_observation",  # prompt them to look at something nearby (NOT mountain imagery)
-    "future_mini_plan",    # propose a tiny enjoyable thing to do today/tomorrow
-    "celebration_moment",  # celebrate any small win they mentioned
-    "shared_interest",     # pivot to a known interest from memory_context
-]
-
-# ──────────────────────────────────────────────
-# TTS parameter ranges (SINGLE SOURCE OF TRUTH)
-# These must stay in sync with clamp logic below.
-# ──────────────────────────────────────────────
-TTS_RANGES = {
-    "sadness":  {"pitch": (0.82, 0.90), "speed": (0.82, 0.88)},
-    "anger":    {"pitch": (0.88, 0.94), "speed": (0.84, 0.90)},
-    "fear":     {"pitch": (0.90, 0.96), "speed": (0.86, 0.92)},
-    "calm":     {"pitch": (1.10, 1.20), "speed": (1.00, 1.05)},
-    "joy":      {"pitch": (1.22, 1.32), "speed": (1.05, 1.12)},
-    "surprise": {"pitch": (1.22, 1.32), "speed": (1.05, 1.12)},
+# Every activity must be EXECUTABLE inline — not an offer, not a question about whether to do it.
+ACTIVITY_POOL: Dict[str, str] = {
+    "tiny_story":        "Tell a COMPLETE 3-sentence funny or warm story RIGHT NOW in response_text. The full story goes here. Do NOT say 'want to hear one?' — just tell it.",
+    "light_joke":        "Tell a COMPLETE joke with setup + punchline RIGHT NOW. Don't say 'I have a joke' — just tell it.",
+    "quick_choice":      "Give a concrete binary choice AND state what happens for each: e.g. 'chai or nimbu paani? If chai I want to know who makes the best you've had. If nimbu paani, tell me your secret ratio.'",
+    "curiosity_question":"Ask ONE genuinely curious question about their past or life — something specific, never asked before in this session.",
+    "food_memory":       "Ask about ONE vivid food moment — not 'favourite food' but something specific: 'best meal you ever had at someone else's house?'",
+    "song_memory":       "Ask about a specific song or era framed concretely: 'Is there a song from your 20s that instantly takes you somewhere?'",
+    "compliment_anchor": "Give a specific warm compliment based on what they just shared, then ask one follow-up that lets them expand on it.",
+    "share_memory":      "Ask about ONE specific vivid memory — be concrete: 'What's the funniest thing you remember about a family meal?'",
+    "fun_fact":          "Share one surprising cheerful fact RIGHT NOW — deliver it, then ask their reaction.",
+    "playful_debate":    "Start a gentle silly debate RIGHT NOW: e.g. 'I'm firmly team mango, don't try to change my mind — where do you stand?' Deliver your position, invite theirs.",
+    "future_mini_plan":  "Propose one specific tiny enjoyable thing for later today or tomorrow. Ask if they'd be up for it.",
+    "celebration_moment":"Name something small from what they said and celebrate it directly. Even venting takes courage — say so.",
 }
 
-# Global hard clamps (absolute ceiling / floor across all emotions)
+TTS_RANGES = {
+    "sadness":  {"pitch": (0.82, 0.90), "speed": (0.82, 0.88)},
+    "anger":    {"pitch": (0.88, 0.96), "speed": (0.84, 0.90)},
+    "fear":     {"pitch": (0.90, 0.96), "speed": (0.86, 0.92)},
+    "calm":     {"pitch": (1.05, 1.18), "speed": (0.98, 1.05)},
+    "joy":      {"pitch": (1.18, 1.32), "speed": (1.05, 1.12)},
+    "surprise": {"pitch": (1.15, 1.30), "speed": (1.04, 1.10)},
+}
 PITCH_MIN, PITCH_MAX = 0.82, 1.32
 SPEED_MIN, SPEED_MAX = 0.82, 1.12
 
-
-# ──────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────
+# ── Memory marker parsing ─────────────────────────────────────────────────────
 
 def _extract_used_activities(memory_context: str) -> List[str]:
-    """
-    Pull activity tags already used from memory_context if they were
-    embedded as [activity:tag] markers. Falls back to keyword scan.
-    """
+    """Pull [activity:tag] markers embedded by pipeline_manager."""
     tags = re.findall(r"\[activity:(\w+)\]", memory_context or "")
     if tags:
         return tags
-
-    # Keyword fallback — scan for plain-language signals
-    found = []
+    # Keyword fallback for plain-text memory
     lowered = (memory_context or "").lower()
-    for activity in ACTIVITY_POOL:
-        keyword = activity.replace("_", " ")
-        if keyword in lowered:
-            found.append(activity)
-    return found
+    return [k for k in ACTIVITY_POOL if k.replace("_", " ") in lowered]
 
 
-def _emotion_arc_instruction(dominant_emotion: str, intensity: float) -> str:
-    """Return a targeted arc instruction based on current emotion state."""
-    if dominant_emotion in ("sadness", "fear") and intensity > 0.6:
-        return (
-            "The user is in clear emotional distress. Your arc goal: gently shift them "
-            "toward CALM first, then toward curiosity or warmth. Do NOT stay in sadness — "
-            "validate briefly, then pivot to a concrete warm activity that gives them "
-            "something to hold onto right now."
-        )
-    if dominant_emotion in ("sadness", "fear") and intensity <= 0.6:
-        return (
-            "The user feels low but not overwhelmed. Your arc goal: move them toward "
-            "CALM or mild JOY. Acknowledge their feeling in one beat, then engage them "
-            "with something that sparks a small smile or a pleasant memory."
-        )
-    if dominant_emotion == "anger" and intensity > 0.5:
-        return (
-            "The user is frustrated or upset. Your arc goal: de-escalate toward CALM. "
-            "Validate that their frustration makes sense (don't minimise it), then offer "
-            "one small redirecting activity — a gentle distraction, not a lecture."
-        )
-    if dominant_emotion in ("joy", "surprise") and intensity > 0.5:
-        return (
-            "The user is in a positive state. Your arc goal: sustain and amplify JOY. "
-            "Match their energy, celebrate, and keep the momentum with something playful."
-        )
-    return (
-        "The user's emotion is mild or neutral. Your arc goal: gently elevate toward "
-        "CALM or JOY. Pick an engaging activity from the approved list."
-    )
+def _extract_pending_promise(memory_context: str) -> Optional[str]:
+    """Pull [promise:...] marker — something RIO offered but hasn't delivered."""
+    m = re.search(r"\[promise:([^\]]+)\]", memory_context or "")
+    return m.group(1).strip() if m else None
 
+
+def _extract_last_rio_said(memory_context: str) -> List[str]:
+    """Pull [rio_said:...] markers for loop detection."""
+    return re.findall(r"\[rio_said:([^\]]+)\]", memory_context or "")
+
+
+# ── User intent detection ─────────────────────────────────────────────────────
+
+_REFUSAL_SIGNALS = [
+    "no ", "nope", "don't want", "stop", "not that", "something else",
+    "forget it", "never mind", "not interested", "don't like",
+]
+
+_FOLLOWTHROUGH_SIGNALS = [
+    "you said", "you promised", "told me", "just tell", "tell me the",
+    "do it", "go ahead", "then tell", "said you would", "said you will",
+    "well tell", "so tell", "you were going to", "waiting",
+]
+
+
+def _is_refusal(transcript: str) -> bool:
+    t = transcript.lower()
+    return any(s in t for s in _REFUSAL_SIGNALS)
+
+
+def _is_demanding_followthrough(transcript: str) -> bool:
+    t = transcript.lower()
+    return any(s in t for s in _FOLLOWTHROUGH_SIGNALS)
+
+
+# ── Emotion arc ───────────────────────────────────────────────────────────────
+
+def _arc_instruction(dominant_emotion: str, intensity: float) -> str:
+    if dominant_emotion == "anger":
+        if intensity > 0.55:
+            return (
+                "User is ANGRY. MANDATORY first beat: validate the anger directly "
+                "('That sounds really frustrating' or similar — NOT 'I hear you'). "
+                "Then offer ONE gentle redirect. Arc: anger → slightly calmer."
+            )
+        return "User is irritated. Brief validation, then warm redirect. Arc: irritation → calm."
+
+    if dominant_emotion in ("sadness", "fear") and intensity > 0.60:
+        return (
+            "User is clearly distressed. One warm direct acknowledgement first. "
+            "Then something concrete and gentle. Arc: distress → slightly held."
+        )
+    if dominant_emotion in ("sadness", "fear"):
+        return "User feels low. Acknowledge briefly, then spark a small moment of warmth. Arc: low → slightly lifted."
+
+    if dominant_emotion in ("joy", "surprise") and intensity > 0.40:
+        return "User is positive. Match energy and amplify. Arc: sustain and build joy."
+
+    return "User is neutral/mild. Gently elevate toward warmth. Arc: neutral → warm."
+
+
+# ── Agent & Task ──────────────────────────────────────────────────────────────
 
 def create_dialogue_agent() -> Agent:
-    """
-    Create a CrewAI Agent for RIO's dialogue capability.
-
-    Returns:
-        A CrewAI Agent configured for warm, emotionally intelligent responses.
-    """
     llm = get_llm()
-
-    agent = Agent(
+    return Agent(
         role="RIO",
         goal=(
-            "Guide the user's emotion along a clear arc from negative toward positive. "
-            "Validate briefly, then take concrete initiative. Never repeat the same activity "
-            "twice. Never use breathing scripts, mountain imagery, or counting exercises. "
-            "Be a real companion, not a wellness chatbot cliché."
+            "Be a real companion. Follow through on what you offer. "
+            "Execute activities inline — never just suggest them. Never loop."
         ),
         backstory=(
-            "You are RIO, a trusted companion for elderly users. You have a warm, slightly "
-            "playful personality. You listen genuinely, but you don't wallow — you always "
-            "try to move the user toward a better feeling. You remember past conversations "
-            "and build on them. You match Hindi or English naturally. You are NOT a meditation "
-            "app: you never lead breathing exercises, never ask users to 'imagine a mountain', "
-            "and never run scripted grounding protocols. Instead, you engage like a good friend "
-            "— with humour, stories, shared memories, gentle curiosity, and small delightful choices."
+            "You are RIO, a warm companion for elderly users. You are curious, slightly playful, "
+            "and always follow through. When you say you'll tell a story, you tell it right now. "
+            "When someone says no, you try something completely different. "
+            "You never use breathing exercises, never ask people to visualise mountains, "
+            "and never run wellness scripts. You talk like a good friend."
         ),
         llm=llm,
         verbose=False,
         allow_delegation=False,
     )
-
-    return agent
 
 
 def dialogue_task(
@@ -168,149 +184,143 @@ def dialogue_task(
     user_transcript: str,
     memory_context: str,
 ) -> Task:
-    """
-    Create a CrewAI Task for generating RIO's response.
-
-    Args:
-        agent: The dialogue agent.
-        stimulus: StimulusObject.to_dict() — emotion vectors & metadata.
-        intervention_intent: e.g., "deflect_sadness", "reinforce_joy".
-        user_transcript: What the user just said.
-        memory_context: Summary of last 3 interactions (plain text).
-                        Embed [activity:tag] markers to track used activities.
-
-    Returns:
-        A CrewAI Task configured for dialogue generation.
-    """
     dominant_emotion = stimulus.get("dominant_emotion", "neutral")
     emotion_intensity = stimulus.get("emotion_intensity", 0.5)
     session_start = not bool((memory_context or "").strip())
 
-    used_activities = _extract_used_activities(memory_context)
-    available_activities = [a for a in ACTIVITY_POOL if a not in used_activities]
-    # Suggest the top 4 available activities to give the model real choices
-    suggested_activities = available_activities[:4] if available_activities else ACTIVITY_POOL[:4]
+    used_activities   = _extract_used_activities(memory_context)
+    pending_promise   = _extract_pending_promise(memory_context)
+    last_rio_said     = _extract_last_rio_said(memory_context)
+    user_refused      = _is_refusal(user_transcript)
+    user_demanding    = _is_demanding_followthrough(user_transcript)
 
-    arc_instruction = _emotion_arc_instruction(dominant_emotion, emotion_intensity)
+    available = {k: v for k, v in ACTIVITY_POOL.items() if k not in used_activities}
+    if not available:
+        available = ACTIVITY_POOL  # full reset when pool exhausted
 
-    tts_guidance = "\n".join(
-        f"- {emotion}: pitch {r['pitch'][0]:.2f}–{r['pitch'][1]:.2f}, "
-        f"speed {r['speed'][0]:.2f}–{r['speed'][1]:.2f}"
-        for emotion, r in TTS_RANGES.items()
+    activity_menu = "\n".join(f"  [{k}] {v}" for k, v in list(available.items())[:6])
+
+    # ── Situation block — HIGHEST PRIORITY, read first ───────────────────────
+    if session_start:
+        situation = (
+            "SITUATION: First turn.\n"
+            "→ Greet warmly, say your name is RIO, ask ONE friendly question about their day.\n"
+            "→ 2 sentences. No activities yet."
+        )
+    elif pending_promise and (user_demanding or not user_refused):
+        situation = (
+            f"SITUATION: ⚠️  MANDATORY COMMITMENT\n"
+            f"You promised: \"{pending_promise}\"\n"
+            f"The user is waiting. YOU MUST DELIVER THIS NOW — full and complete, in response_text.\n"
+            f"Do NOT redirect, do NOT offer something else, do NOT ask if they want it.\n"
+            f"Just do it."
+        )
+    elif user_refused:
+        last_offer = last_rio_said[-1] if last_rio_said else "your last suggestion"
+        situation = (
+            f"SITUATION: USER REFUSED\n"
+            f"They said no to: \"{last_offer}\"\n"
+            f"→ One word acknowledgement ('Fair enough' / 'Alright'), then pick a COMPLETELY DIFFERENT\n"
+            f"  activity from the menu. Do NOT rephrase the same thing."
+        )
+    elif last_rio_said:
+        recents = " | ".join(f'"{s}"' for s in last_rio_said[-2:])
+        situation = (
+            f"SITUATION: Normal turn.\n"
+            f"Your recent responses (DO NOT REPEAT THESE PATTERNS OR PHRASES): {recents}\n"
+            f"→ Different activity. Different opening words."
+        )
+    else:
+        situation = "SITUATION: Normal turn. Pick an activity and deliver it."
+
+    tts_guide = "\n".join(
+        f"  {e}: pitch {r['pitch'][0]:.2f}–{r['pitch'][1]:.2f}, speed {r['speed'][0]:.2f}–{r['speed'][1]:.2f}"
+        for e, r in TTS_RANGES.items()
     )
-
-    banned_list = ", ".join(f'"{b}"' for b in BANNED_ACTIVITIES)
+    banned_str = ", ".join(f'"{b}"' for b in BANNED_PHRASES)
 
     prompt = f"""
-You are RIO — a warm, witty companion for an elderly user. You are NOT a wellness bot.
-You are a good friend who happens to care deeply.
+You are RIO — a warm companion. You are NOT a wellness bot.
 
-═══════════════════════════════════════════════════
-CURRENT STATE
-═══════════════════════════════════════════════════
-- Dominant emotion   : {dominant_emotion} (intensity: {emotion_intensity:.0%})
-- Intervention goal  : {intervention_intent}
-- User just said     : "{user_transcript}"
-- Session start      : {str(session_start).lower()}
+════════════════════════════════════
+{situation}
+════════════════════════════════════
 
-MEMORY OF RECENT INTERACTIONS:
-{memory_context or "(no prior context — first session)"}
+EMOTIONAL STATE:
+  Dominant: {dominant_emotion} ({emotion_intensity:.0%})
+  Goal    : {_arc_instruction(dominant_emotion, emotion_intensity)}
+  Intent  : {intervention_intent}
 
-ACTIVITIES ALREADY USED (DO NOT REPEAT THESE):
-{", ".join(used_activities) if used_activities else "none yet"}
+USER JUST SAID: "{user_transcript}"
 
-SUGGESTED ACTIVITIES TO CHOOSE FROM THIS TURN:
-{", ".join(suggested_activities)}
+MEMORY (do not repeat anything from here):
+{memory_context or "(first session)"}
 
-═══════════════════════════════════════════════════
-EMOTIONAL ARC GOAL
-═══════════════════════════════════════════════════
-{arc_instruction}
+════════════════════════════════════
+NAME RULE — CRITICAL
+════════════════════════════════════
+NEVER extract names from emotional phrases.
+"I'm just very angry" → name is UNKNOWN, not "Just Very".
+"I'm so tired" → not a name. "I'm feeling down" → not a name.
+If you don't know their name: don't use any name at all.
 
-═══════════════════════════════════════════════════
-HARD RULES — VIOLATIONS ARE NOT ACCEPTABLE
-═══════════════════════════════════════════════════
-1. NEVER use or reference: {banned_list}.
-   These are completely off-limits, no matter what. Not even a hint of them.
-2. NEVER repeat an activity from "ACTIVITIES ALREADY USED".
-3. NEVER start your response with "You seem", "It seems", or "I notice".
-4. NEVER end two turns in a row with only an open question — pair any question
-   with a suggestion or something you can do together in chat.
-5. NEVER give medical, legal, or psychiatric advice.
-   If the user mentions self-harm or crisis, respond with warm care and encourage
-   them to speak to someone they trust or call a helpline.
-6. Keep response_text to 2–4 short sentences. Concise and warm beats long and thorough.
-7. Use the user's name at most once per response, not every turn.
+════════════════════════════════════
+AVAILABLE ACTIVITIES (pick ONE, execute it inline):
+════════════════════════════════════
+{activity_menu}
 
-═══════════════════════════════════════════════════
-WHAT TO DO THIS TURN
-═══════════════════════════════════════════════════
-{"→ SESSION START: Greet warmly, introduce yourself as RIO, and ask a single friendly question about their day. Keep it brief." if session_start else """
-→ Step 1: Acknowledge what the user shared in ONE short phrase (not a paragraph).
-→ Step 2: Pick ONE activity from the suggested list above. Make it feel natural and spontaneous — not like a therapist assigning homework.
-→ Step 3: Deliver both steps in 2–4 sentences max. Match the user's language (Hindi or English).
-→ Remember: your job is to move them emotionally, not just reflect their feelings back at them.
-"""}
+Already used this session (SKIP THESE): {", ".join(used_activities) if used_activities else "none"}
 
-═══════════════════════════════════════════════════
-OUTPUT FORMAT
-═══════════════════════════════════════════════════
-Output ONLY valid JSON with EXACTLY these keys (no markdown, no preamble):
+════════════════════════════════════
+HARD RULES
+════════════════════════════════════
+1. BANNED — NEVER USE: {banned_str}
+2. EXECUTE the activity inline in response_text. Do NOT just offer it.
+   WRONG: "How about I tell you a story?" [never tells it]
+   RIGHT: "Here's one — there was a crow who..."
+3. If COMMITMENT above: deliver it fully. No pivot.
+4. NEVER open with "You seem", "It seems", "I notice", "I can see", "I hear that".
+5. 2–4 SHORT sentences max. Short beats long.
+6. Match the user's language (Hindi or English).
+7. No name if unknown. At most once per response if known.
+
+════════════════════════════════════
+OUTPUT — valid JSON only, no markdown:
+════════════════════════════════════
 {{
-  "response_text": "<what RIO says out loud, 2–4 short sentences>",
-  "expression_intent": "<one of: joy | sadness | calm | surprise | fear | anger>",
-  "activity_used": "<the activity tag you chose from the suggested list, e.g. quick_choice>",
-  "tts_params": {{
-    "pitch": <float>,
-    "speed": <float>
-  }}
+  "response_text": "<2–4 sentences — activity executed inline, NOT just offered>",
+  "expression_intent": "<joy|sadness|calm|surprise|fear|anger>",
+  "activity_used": "<key from menu, e.g. tiny_story>",
+  "pending_promise": "<if you offered something not yet delivered, describe it in ~5 words, else null>",
+  "tts_params": {{"pitch": <float>, "speed": <float>}}
 }}
 
-TTS GUIDANCE — align with expression_intent:
-{tts_guidance}
-
-Choose pitch and speed from within the range for your chosen expression_intent.
+TTS — align with expression_intent:
+{tts_guide}
 """
 
-    task = Task(
+    return Task(
         description=prompt,
-        expected_output=(
-            "Valid JSON with keys: response_text, expression_intent, activity_used, tts_params"
-        ),
+        expected_output="Valid JSON: response_text, expression_intent, activity_used, pending_promise, tts_params",
         agent=agent,
     )
 
-    return task
 
+# ── TTS validation ────────────────────────────────────────────────────────────
 
-# ──────────────────────────────────────────────
-# TTS validation
-# ──────────────────────────────────────────────
-
-def _validated_tts(tts_params: Dict, expression_intent: str) -> Dict:
-    """
-    Validate and clamp TTS params.
-    Uses the emotion-specific range if available, otherwise global clamps.
-    """
-    pitch = float(tts_params.get("pitch", 1.0))
-    speed = float(tts_params.get("speed", 0.95))
-
-    if expression_intent in TTS_RANGES:
-        p_min, p_max = TTS_RANGES[expression_intent]["pitch"]
-        s_min, s_max = TTS_RANGES[expression_intent]["speed"]
+def _validated_tts(params: Dict, expression: str) -> Dict:
+    pitch = float(params.get("pitch", 1.0))
+    speed = float(params.get("speed", 0.95))
+    if expression in TTS_RANGES:
+        p_min, p_max = TTS_RANGES[expression]["pitch"]
+        s_min, s_max = TTS_RANGES[expression]["speed"]
     else:
         p_min, p_max = PITCH_MIN, PITCH_MAX
         s_min, s_max = SPEED_MIN, SPEED_MAX
-
-    return {
-        "pitch": max(p_min, min(p_max, pitch)),
-        "speed": max(s_min, min(s_max, speed)),
-    }
+    return {"pitch": max(p_min, min(p_max, pitch)), "speed": max(s_min, min(s_max, speed))}
 
 
-# ──────────────────────────────────────────────
-# Public entry point
-# ──────────────────────────────────────────────
+# ── Public entry point ────────────────────────────────────────────────────────
 
 def run_dialogue(
     stimulus: Dict[str, Any],
@@ -319,97 +329,71 @@ def run_dialogue(
     memory_context: str = "",
 ) -> Dict[str, Any]:
     """
-    Run the dialogue agent and return a structured response.
+    Run the dialogue agent.
 
-    Args:
-        stimulus: StimulusObject.to_dict().
-        intervention_intent: Intervention strategy (e.g., "deflect_sadness").
-        user_transcript: User's input text.
-        memory_context: Optional summary of recent interactions.
-                        Embed [activity:tag] markers to enable rotation tracking.
-                        Example: "User talked about loneliness. [activity:quick_choice]"
-
-    Returns:
-        Dict with:
-          - "response_text"     : str
-          - "expression_intent" : str (one of VALID_EMOTIONS)
-          - "activity_used"     : str (activity tag, for caller to persist in memory_context)
-          - "tts_params"        : {"pitch": float, "speed": float}
-
-        On parse error, returns a safe fallback response.
+    Returns dict with:
+      response_text     : str
+      expression_intent : str
+      activity_used     : str   ← pipeline_manager writes this as [activity:tag] into memory
+      pending_promise   : str|None ← pipeline_manager writes as [promise:...] if not None
+      tts_params        : dict
     """
     try:
         agent = create_dialogue_agent()
-        task = dialogue_task(
-            agent, stimulus, intervention_intent, user_transcript, memory_context
-        )
-
+        task  = dialogue_task(agent, stimulus, intervention_intent, user_transcript, memory_context)
         result = agent.execute_task(task)
         output_text = str(result).strip()
 
-        # Parse JSON — handle markdown fences if present
         try:
-            response_dict = json.loads(output_text)
+            d = json.loads(output_text)
         except json.JSONDecodeError:
             if "```json" in output_text:
-                json_str = output_text.split("```json")[1].split("```")[0].strip()
+                output_text = output_text.split("```json")[1].split("```")[0].strip()
             elif "```" in output_text:
-                json_str = output_text.split("```")[1].split("```")[0].strip()
-            else:
-                raise
-            response_dict = json.loads(json_str)
+                output_text = output_text.split("```")[1].split("```")[0].strip()
+            d = json.loads(output_text)
 
-        # Validate required keys
-        required_keys = ["response_text", "expression_intent", "tts_params"]
-        if not all(k in response_dict for k in required_keys):
-            raise ValueError(f"Missing required keys. Got: {list(response_dict.keys())}")
+        if not all(k in d for k in ["response_text", "expression_intent", "tts_params"]):
+            raise ValueError(f"Missing keys in response: {list(d.keys())}")
 
-        # Sanitise expression_intent
-        if response_dict["expression_intent"] not in VALID_EMOTIONS:
-            logger.warning(
-                f"Invalid expression_intent '{response_dict['expression_intent']}' — defaulting to calm"
-            )
-            response_dict["expression_intent"] = "calm"
+        if d["expression_intent"] not in VALID_EMOTIONS:
+            d["expression_intent"] = "calm"
 
-        # Sanitise tts_params with emotion-aware clamping
-        response_dict["tts_params"] = _validated_tts(
-            response_dict.get("tts_params", {}),
-            response_dict["expression_intent"],
-        )
+        d["tts_params"]     = _validated_tts(d.get("tts_params", {}), d["expression_intent"])
+        d.setdefault("activity_used", "unknown")
+        d.setdefault("pending_promise", None)
 
-        # Ensure activity_used is present (may be absent in edge cases)
-        if "activity_used" not in response_dict:
-            response_dict["activity_used"] = "unknown"
+        # Normalise null-ish pending_promise
+        pp = d["pending_promise"]
+        if isinstance(pp, str) and pp.strip().lower() in ("null", "none", ""):
+            d["pending_promise"] = None
 
-        # Post-hoc safety check — warn if banned content slipped through
-        response_lower = response_dict["response_text"].lower()
-        for banned in BANNED_ACTIVITIES:
-            if banned in response_lower:
-                logger.warning(
-                    f"Banned activity keyword '{banned}' found in response. "
-                    "Consider re-running or flagging this turn."
-                )
+        # Warn if banned phrase slipped through
+        low = d["response_text"].lower()
+        hits = [b for b in BANNED_PHRASES if b in low]
+        if hits:
+            logger.warning(f"Banned phrase slipped through: {hits}")
 
         logger.info(
-            f"Dialogue output | emotion={response_dict['expression_intent']} "
-            f"| activity={response_dict.get('activity_used', 'n/a')}"
+            f"Dialogue | emotion={d['expression_intent']} "
+            f"activity={d['activity_used']} promise={d['pending_promise']}"
         )
-        return response_dict
+        return d
 
     except Exception as e:
         logger.error(f"Dialogue agent error: {e}", exc_info=True)
-
         if not (memory_context or "").strip():
             return {
-                "response_text": "Hello! I'm RIO. It's good to have you here. How has your day been treating you?",
+                "response_text": "Hello! I'm RIO. Really glad you're here. How's your day going?",
                 "expression_intent": "calm",
-                "activity_used": "curiosity_question",
-                "tts_params": {"pitch": 1.15, "speed": 1.02},
+                "activity_used":    "curiosity_question",
+                "pending_promise":  None,
+                "tts_params":       {"pitch": 1.12, "speed": 1.02},
             }
-
         return {
-            "response_text": "I'm right here with you. Tell me — what's been on your mind today?",
+            "response_text": "Still here with you. What's been on your mind today?",
             "expression_intent": "calm",
-            "activity_used": "curiosity_question",
-            "tts_params": {"pitch": 1.10, "speed": 1.00},
+            "activity_used":    "curiosity_question",
+            "pending_promise":  None,
+            "tts_params":       {"pitch": 1.08, "speed": 1.00},
         }

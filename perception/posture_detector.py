@@ -67,8 +67,11 @@ class PostureEmotionDetector:
     def __init__(
         self,
         camera_index: int = 0,
-        min_detection_confidence: float = 0.6,
-        min_tracking_confidence: float = 0.5
+        min_detection_confidence: float = 0.5,
+        min_tracking_confidence: float = 0.5,
+        *,
+        open_camera: bool = True,
+        model_complexity: int = 1,
     ):
         self.camera_index = camera_index
         self._cap = None
@@ -76,8 +79,10 @@ class PostureEmotionDetector:
         self._pose = None
         self._mp_drawing = None
         self._mediapipe_available = False
+        self._model_complexity = max(0, min(2, int(model_complexity)))
 
-        self._init_camera()
+        if open_camera:
+            self._init_camera()
         self._init_mediapipe(min_detection_confidence, min_tracking_confidence)
 
     def _init_camera(self):
@@ -100,14 +105,22 @@ class PostureEmotionDetector:
             from mediapipe import solutions
             self._mp_pose = solutions.pose
             self._pose = self._mp_pose.Pose(
+                static_image_mode=False,
+                model_complexity=self._model_complexity,
+                smooth_landmarks=True,
+                enable_segmentation=False,
                 min_detection_confidence=det_conf,
-                min_tracking_confidence=track_conf
+                min_tracking_confidence=track_conf,
             )
             self._mp_drawing = solutions.drawing_utils
             self._mediapipe_available = True
             logger.info("MediaPipe Pose loaded successfully.")
-        except ImportError:
-            logger.warning("MediaPipe not installed. Run: pip install mediapipe")
+        except ImportError as e:
+            logger.warning(
+                "MediaPipe Pose unavailable (%s). "
+                "If you see 'cannot import name solutions', use: pip install 'mediapipe==0.10.21'.",
+                e,
+            )
 
     def _landmarks_to_xy(self, landmarks, indices: list, frame_w: int, frame_h: int) -> dict:
         """Extract (x, y) pixel coords for the requested landmark indices."""
