@@ -1,26 +1,30 @@
 """
-emotion_fusion.py  (v2 — calibration patch)
---------------------------------------------
+emotion_fusion.py  (v3 — full emotion palette patch)
+-----------------------------------------------------
 Central emotion fusion engine for the RIO Elderly Care Robot.
 
-Changes from v1 → v2 (Day 2 calibration patch):
-  1. sadness_focus_multiplier raised  1.15 → 1.35
-  2. sadness_threshold lowered        0.42 → 0.40
-  3. sustained_cycles_required lowered   3 → 2  (catch depression faster)
-  4. Per-source EMOTION_BIAS offsets applied before fusion (from config.py)
-  5. Anger↔sadness disambiguation:
-       if posture=sad AND voice does NOT confirm anger → transfer 50% anger→sadness
-  6. Joy suppression gate:
-       if sadness > 0.40 AND joy < 0.35 → dynamically cap joy
+Changes from v2 → v3:
+  1. Anger↔sadness disambiguation DISABLED by default.
+     The v2 rule was transferring 50% of all anger to sadness whenever posture
+     was sad-dominant — this silently ate anger even when the user was genuinely
+     angry. The rule is now opt-in via `enable_anger_disambiguation=True`.
 
-Everything else (weights, StimulusObject, SadnessAssessment, helpers) unchanged.
+  2. sadness_focus_multiplier default reset to 1.0 (neutral).
+     Amplifying sadness post-fusion skewed the dominant emotion toward sadness
+     even when other emotions were higher. Set > 1.0 only if calibration data
+     shows the detector consistently under-reports sadness.
 
-Architecture:
-  EmotionVector (dataclass)
-      ↓
-  EmotionFusionEngine.fuse()
-      ↓
-  StimulusObject (dict, emotion data container)
+  3. Joy suppression gate threshold lowered 0.45 → 0.38 and conditions tightened:
+     Gate now requires BOTH sadness > 0.38 AND sadness > joy*1.5 (i.e. sadness
+     clearly dominates) before capping joy. Avoids suppressing joy in mixed states.
+
+  4. New `enable_bias_rules` flag now controls joy gate + sadness multiplier only;
+     anger disambiguation has its own flag `enable_anger_disambiguation`.
+
+  5. Weights rebalanced: voice raised 0.30 → 0.35, face lowered 0.65 → 0.60.
+     Voice (text transformer) is a stronger anger/fear signal than face landmarks.
+
+Everything else (StimulusObject, SadnessAssessment, history smoothing) unchanged.
 """
 
 import time
@@ -31,13 +35,11 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional
 
-# Ensure config.py in project root is discoverable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# ─── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("EmotionFusion")
 
@@ -55,17 +57,16 @@ class EmotionVector:
     confidence ∈ [0.0, 1.0] — how reliable this reading is.
     source: which detector produced this (for logging).
     """
-    joy:      float = 0.0
-    sadness:  float = 0.0
-    fear:     float = 0.0
-    disgust:  float = 0.0
-    anger:    float = 0.0
-    surprise: float = 0.0
-    confidence: float = 1.0   # not part of RIO vector, used for fusion weighting
-    source: str = "unknown"   # "face" | "posture" | "voice"
+    joy:        float = 0.0
+    sadness:    float = 0.0
+    fear:       float = 0.0
+    disgust:    float = 0.0
+    anger:      float = 0.0
+    surprise:   float = 0.0
+    confidence: float = 1.0
+    source:     str   = "unknown"
 
     def clamp(self) -> "EmotionVector":
-        """Clamp all emotion values to [0, 1]."""
         for key in EMOTION_KEYS:
             setattr(self, key, max(0.0, min(1.0, getattr(self, key))))
         self.confidence = max(0.0, min(1.0, self.confidence))
@@ -81,55 +82,53 @@ class EmotionVector:
 
 @dataclass
 class StimulusObject:
-    """
-    RIO Stimulus Object — matches the structure expected by the RIO engine.
-    See paper Section 5.1 for the full specification.
-    """
-    label: str
-    emotions: dict                          # 6D Ekman dict
+    """RIO Stimulus Object — matches the structure expected by the RIO engine."""
+    label:       str
+    emotions:    dict
     personality: dict = field(default_factory=lambda: {
         "openness": 0.5,
         "conscientiousness": 0.5,
         "agreeableness": 0.5,
         "extraversion": 0.5,
-        "neuroticism": 0.5
+        "neuroticism": 0.5,
     })
-    trust: float = 0.7                      # affective trust α ∈ [0,1]
-    likeness: float = 0.7                   # l ∈ [0,1]
-    times_occurred: int = 1                 # ρ
-    timestamp: float = field(default_factory=time.time)
+    trust:          float = 0.7
+    likeness:       float = 0.7
+    times_occurred: int   = 1
+    timestamp:      float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
         return {
-            "label": self.label,
-            "emotions": self.emotions,
-            "personality": self.personality,
-            "trust": self.trust,
-            "likeness": self.likeness,
+            "label":        self.label,
+            "emotions":     self.emotions,
+            "personality":  self.personality,
+            "trust":        self.trust,
+            "likeness":     self.likeness,
             "timesOccurred": self.times_occurred,
-            "timestamp": self.timestamp
+            "timestamp":    self.timestamp,
         }
 
 
 @dataclass
 class SadnessAssessment:
     """Decision object used by the therapeutic sadness-first policy."""
-    sadness_score: float
-    confidence: float
-    dominant_emotion: str
-    dominant_value: float
-    sustained: bool
-    support_recommended: bool
-    escalation_needed: bool
-    keyword_hits: list[str] = field(default_factory=list)
+    sadness_score:        float
+    confidence:           float
+    dominant_emotion:     str
+    dominant_value:       float
+    sustained:            bool
+    support_recommended:  bool
+    escalation_needed:    bool
+    keyword_hits:         list[str] = field(default_factory=list)
 
 
 # ─── Fusion Weights ─────────────────────────────────────────────────────────
 
+# v3: voice weight raised (text transformer is strong anger/fear signal)
 DEFAULT_WEIGHTS = {
-    "face":    0.45,   # most reliable real-time signal
-    "posture": 0.30,   # good for overall emotional posture
-    "voice":   0.25,   # higher latency, used after speech ends
+    "face":    0.60,
+    "posture": 0.05,
+    "voice":   0.35,
 }
 
 
@@ -140,11 +139,11 @@ class EmotionFusionEngine:
     Combines up to 3 emotion vectors (face, posture, voice) into
     a single fused 6D Ekman vector using weighted averaging.
 
-    v2 changes:
-      - EMOTION_BIAS offsets applied per-source before fusion
-      - Anger↔sadness disambiguation post-fusion
-      - Joy suppression gate post-fusion
-      - Tuned sadness sensitivity parameters
+    v3 changes:
+      - sadness_focus_multiplier default = 1.0 (neutral, not amplifying)
+      - anger disambiguation opt-in only (enable_anger_disambiguation=False default)
+      - joy gate threshold tightened: sadness > 0.38 AND sadness > joy*1.5
+      - voice weight raised to 0.35 for better anger/fear from text
 
     Usage:
         engine = EmotionFusionEngine()
@@ -160,15 +159,17 @@ class EmotionFusionEngine:
         weights: dict = None,
         staleness_seconds: float = 5.0,
         min_confidence: float = 0.1,
-        # v2: raised sadness sensitivity; tune down slightly to avoid over-triggering sadness.
-        sadness_focus_multiplier: float = 1.25,
-        # v2: trigger/support thresholds (tuned to reduce sadness being selected too often).
-        sadness_threshold: float = 0.42,
+        # v3: default 1.0 = no amplification; raise only with calibration evidence
+        sadness_focus_multiplier: float = 1.0,
+        sadness_threshold: float = 0.45,
         sadness_high_threshold: float = 0.64,
-        # v2: lowered from 3 → 2 (catch depression faster)
-        sustained_cycles_required: int = 2,
+        sustained_cycles_required: int = 3,
         support_cooldown_seconds: float = 18.0,
-        emotion_bias: dict = None,          # v2: per-source bias offsets
+        emotion_bias: dict = None,
+        # v3: joy gate + sadness multiplier (replaces old enable_bias_rules)
+        enable_bias_rules: bool = True,
+        # v3: anger→sadness transfer now opt-in (was always-on in v2)
+        enable_anger_disambiguation: bool = False,
     ):
         self.weights = weights or DEFAULT_WEIGHTS.copy()
         self.staleness_seconds = staleness_seconds
@@ -178,8 +179,10 @@ class EmotionFusionEngine:
         self.sadness_high_threshold = sadness_high_threshold
         self.sustained_cycles_required = sustained_cycles_required
         self.support_cooldown_seconds = support_cooldown_seconds
+        self.enable_bias_rules = enable_bias_rules
+        self.enable_anger_disambiguation = enable_anger_disambiguation
 
-        # v2: load bias from config.py if not passed directly
+        # Load bias from config or use empty
         if emotion_bias is not None:
             self.emotion_bias = emotion_bias
         else:
@@ -198,35 +201,26 @@ class EmotionFusionEngine:
                 logger.warning("config.py not found — EMOTION_BIAS not applied.")
                 self.emotion_bias = {}
 
-        # Stores the latest EmotionVector per source
         self._readings: dict[str, EmotionVector] = {}
         self._last_update: dict[str, float] = {}
-
-        # Running history for smoothing (last N fused vectors)
         self._history: list[dict] = []
         self._history_max = 5
-
-        # Sadness-first therapeutic state
         self._sadness_streak = 0
         self._last_support_emit_ts = 0.0
 
     SADNESS_KEYWORDS = {
         "sad", "down", "lonely", "alone", "hopeless", "empty",
-        "cry", "grief", "tired", "exhausted"
+        "cry", "grief", "tired", "exhausted",
     }
     CRISIS_KEYWORDS = {
         "suicide", "kill myself", "end my life", "self harm",
-        "self-harm", "want to die", "die"
+        "self-harm", "want to die", "die",
     }
 
     def update(self, source: str, vector: EmotionVector) -> None:
         """
         Update a single source's emotion reading.
-        v2: applies per-source EMOTION_BIAS offsets before storing.
-
-        Args:
-            source: "face" | "posture" | "voice"
-            vector: EmotionVector from that detector
+        Applies per-source EMOTION_BIAS offsets before storing.
         """
         if source not in self.weights:
             logger.warning(f"Unknown source '{source}', ignoring.")
@@ -235,14 +229,13 @@ class EmotionFusionEngine:
         vector.source = source
         vector.clamp()
 
-        # ── v2 fix 4: apply per-source bias offsets ──────────────────────
         bias = self.emotion_bias.get(source, {})
         if bias:
             for emotion_key, offset in bias.items():
                 if emotion_key in EMOTION_KEYS:
                     current = getattr(vector, emotion_key)
                     setattr(vector, emotion_key, current + offset)
-            vector.clamp()   # re-clamp after offsets
+            vector.clamp()
             logger.debug(f"Bias applied to {source}: {bias}")
 
         self._readings[source] = vector
@@ -271,10 +264,10 @@ class EmotionFusionEngine:
         """
         Compute the fused emotion vector from all active source readings.
 
-        v2 additions (applied after weighted average):
-          - Anger↔sadness disambiguation  (fix 5)
-          - Joy suppression gate           (fix 6)
-          - Sadness focus multiplier       (fix 1, raised)
+        v3 post-fusion rules:
+          - Anger disambiguation: opt-in only (enable_anger_disambiguation)
+          - Joy suppression gate: sadness > 0.38 AND sadness > joy*1.5
+          - Sadness focus multiplier: applied last (default 1.0 = no effect)
 
         Returns:
             EmotionVector with source="fused"
@@ -311,51 +304,54 @@ class EmotionFusionEngine:
             anger=fused_emotions["anger"],
             surprise=fused_emotions["surprise"],
             confidence=fused_confidence,
-            source="fused"
+            source="fused",
         ).clamp()
 
-        # ── v2 fix 5: anger↔sadness disambiguation ───────────────────────
-        # Problem: downturned mouth triggers anger in face_detector.
-        # Rule: if posture says sadness dominates AND voice does NOT confirm
-        #       anger → transfer 50% of the fused anger score to sadness.
-        posture_vector = active.get("posture")
-        voice_vector   = active.get("voice")
+        # ── v3: anger disambiguation (opt-in only) ────────────────────────
+        # Enable only if you have evidence that downturned-mouth misfires as
+        # anger in your specific hardware setup AND voice does not detect anger.
+        if self.enable_anger_disambiguation:
+            posture_vector = active.get("posture")
+            voice_vector   = active.get("voice")
 
-        posture_sad_dominant = (
-            posture_vector is not None
-            and posture_vector.sadness >= posture_vector.anger
-        )
-        voice_confirms_anger = (
-            voice_vector is not None
-            and voice_vector.anger >= 0.30   # voice clearly angry
-        )
-
-        if posture_sad_dominant and not voice_confirms_anger and fused.anger > 0.05:
-            transfer = fused.anger * 0.50
-            fused.anger   = max(0.0, fused.anger - transfer)
-            fused.sadness = min(1.0, fused.sadness + transfer)
-            logger.debug(
-                f"Anger→Sadness disambiguation: transferred {transfer:.3f} "
-                f"(posture_sad={posture_sad_dominant}, voice_anger={voice_confirms_anger})"
+            posture_sad_dominant = (
+                posture_vector is not None
+                and posture_vector.sadness >= posture_vector.anger
+            )
+            voice_confirms_anger = (
+                voice_vector is not None
+                and voice_vector.anger >= 0.30
             )
 
-        # ── v2 fix 6: joy suppression gate ───────────────────────────────
-        # Problem: joy over-triggers even when sadness is clearly dominant.
-        # Rule: if sadness is elevated AND joy is low → cap joy dynamically.
-        # Slightly higher sadness cutoff reduces how often sadness dominates.
-        if fused.sadness > 0.45 and fused.joy < 0.35:
-            # Scale joy down proportionally: the higher sadness, the lower joy cap
-            joy_cap = max(0.05, 0.35 - (fused.sadness - 0.45) * 0.60)
-            if fused.joy > joy_cap:
+            if posture_sad_dominant and not voice_confirms_anger and fused.anger > 0.05:
+                transfer = fused.anger * 0.40   # reduced from 0.50
+                fused.anger   = max(0.0, fused.anger - transfer)
+                fused.sadness = min(1.0, fused.sadness + transfer)
                 logger.debug(
-                    f"Joy gate: capping joy {fused.joy:.3f} → {joy_cap:.3f} "
-                    f"(sadness={fused.sadness:.3f})"
+                    f"Anger→Sadness disambiguation: transferred {transfer:.3f} "
+                    f"(posture_sad={posture_sad_dominant}, voice_anger={voice_confirms_anger})"
                 )
-                fused.joy = joy_cap
 
-        # ── v2 fix 1: raised sadness focus multiplier ─────────────────────
-        # Applied last so disambiguation and gate work on raw values.
-        fused.sadness = min(1.0, fused.sadness * self.sadness_focus_multiplier)
+        # ── v3: joy suppression gate (tightened) ─────────────────────────
+        # Only suppress joy when sadness CLEARLY dominates (not just elevated).
+        # Condition: sadness > 0.38 AND sadness > joy * 1.5
+        # This avoids killing joy in genuinely mixed emotional states.
+        if self.enable_bias_rules:
+            if fused.sadness > 0.38 and fused.sadness > fused.joy * 1.5:
+                joy_cap = max(0.05, 0.35 - (fused.sadness - 0.38) * 0.50)
+                if fused.joy > joy_cap:
+                    logger.debug(
+                        f"Joy gate: capping joy {fused.joy:.3f} → {joy_cap:.3f} "
+                        f"(sadness={fused.sadness:.3f})"
+                    )
+                    fused.joy = joy_cap
+
+        # ── v3: sadness focus multiplier (neutral default) ────────────────
+        # Applied last. Default 1.0 = no change. Raise only with evidence
+        # that your detector consistently under-reports sadness.
+        if self.enable_bias_rules and self.sadness_focus_multiplier != 1.0:
+            fused.sadness = min(1.0, fused.sadness * self.sadness_focus_multiplier)
+
         fused.clamp()
 
         # Store in history for smoothing
@@ -377,7 +373,6 @@ class EmotionFusionEngine:
     ) -> SadnessAssessment:
         """
         Evaluate whether the current fused state indicates therapeutic sadness support.
-        Uses tuned sadness_threshold and sustained_cycles_required to decide when to support sadness.
         """
         dominant, dominant_value = self.get_dominant_emotion(fused)
         keyword_hits, crisis = self._extract_keyword_hits(transcript)
@@ -391,7 +386,7 @@ class EmotionFusionEngine:
         if sadness_evidence:
             self._sadness_streak += 1
         else:
-            self._sadness_streak = max(0, self._sadness_streak - 1)
+            self._sadness_streak = max(0, self._sadness_streak - 2)
 
         sustained = self._sadness_streak >= self.sustained_cycles_required
         support_recommended = (
@@ -422,10 +417,7 @@ class EmotionFusionEngine:
     def fuse_smoothed(self, alpha: float = 0.55) -> EmotionVector:
         """
         Exponential moving average smoothing over recent fused vectors.
-        REDUCED alpha (0.55 instead of 0.65) for faster real-time updates.
-
         alpha=1.0 means no smoothing (just latest), alpha→0 means very smooth.
-        Lower alpha = more responsive to changes, but noisier.
         """
         current = self.fuse()
         if len(self._history) < 2:
@@ -447,7 +439,6 @@ class EmotionFusionEngine:
             **smoothed, confidence=current.confidence, source="fused_smoothed"
         ).clamp()
 
-
     def get_dominant_emotion(self, vector: EmotionVector) -> tuple[str, float]:
         """Returns the emotion with the highest intensity and its value."""
         emotions = vector.to_dict()
@@ -459,14 +450,14 @@ class EmotionFusionEngine:
         fused: EmotionVector,
         label: str = "user_emotional_state",
         trust: float = 0.7,
-        likeness: float = 0.7
+        likeness: float = 0.7,
     ) -> StimulusObject:
         """Package a fused EmotionVector into a RIO-compatible StimulusObject."""
         return StimulusObject(
             label=label,
             emotions=fused.to_dict(),
             trust=trust,
-            likeness=likeness
+            likeness=likeness,
         )
 
     def status(self) -> dict:
@@ -477,10 +468,10 @@ class EmotionFusionEngine:
             if source in self._readings:
                 age = now - self._last_update.get(source, now)
                 status[source] = {
-                    "emotions": self._readings[source].to_dict(),
-                    "confidence": self._readings[source].confidence,
+                    "emotions":    self._readings[source].to_dict(),
+                    "confidence":  self._readings[source].confidence,
                     "age_seconds": round(age, 2),
-                    "stale": age > self.staleness_seconds
+                    "stale":       age > self.staleness_seconds,
                 }
             else:
                 status[source] = {"status": "no reading yet"}
@@ -509,62 +500,80 @@ def mock_voice_vector(dominant: str = "sadness", intensity: float = 0.4) -> Emot
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("RIO Emotion Fusion Engine v2 — Self Test")
+    print("RIO Emotion Fusion Engine v3 — Self Test")
     print("=" * 60)
 
-    # Use explicit bias so the test runs even without config.py on the path
-    TEST_BIAS = {
-        "face":    {"joy": -0.15, "sadness": +0.10, "anger": -0.10, "fear": +0.05, "disgust": 0.0, "surprise": 0.0},
-        "posture": {"joy": -0.05, "sadness": +0.10, "anger": -0.05, "fear": +0.05, "disgust": 0.0, "surprise": 0.0},
-        "voice":   {"joy":  0.00, "sadness": +0.05, "anger":  0.00, "fear":  0.00, "disgust": 0.0, "surprise": 0.0},
+    NEUTRAL_BIAS = {
+        "face":    {k: 0.0 for k in EMOTION_KEYS},
+        "posture": {k: 0.0 for k in EMOTION_KEYS},
+        "voice":   {k: 0.0 for k in EMOTION_KEYS},
     }
 
-    # ── Test 1: downturned mouth → should be SADNESS, not anger ─────────
-    print("\n[TEST 1] Downturned mouth scenario — must be dominant=sadness (not anger)")
-    engine = EmotionFusionEngine(emotion_bias=TEST_BIAS)
-    # Simulate: face picks up anger from frown, posture says sad, voice quiet
-    engine.update("face",    EmotionVector(anger=0.55, sadness=0.30, confidence=0.85, source="face"))
-    engine.update("posture", EmotionVector(sadness=0.60, anger=0.10, confidence=0.75, source="posture"))
-    engine.update("voice",   EmotionVector(sadness=0.40, anger=0.05, confidence=0.60, source="voice"))
+    # ── Test 1: Anger should NOT be eaten by disambiguation (now disabled) ──
+    print("\n[TEST 1] Genuine anger — must survive as dominant (disambiguation off)")
+    engine = EmotionFusionEngine(emotion_bias=NEUTRAL_BIAS, enable_anger_disambiguation=False)
+    engine.update("face",    EmotionVector(anger=0.65, sadness=0.20, confidence=0.85, source="face"))
+    engine.update("posture", EmotionVector(sadness=0.40, anger=0.30, confidence=0.70, source="posture"))
+    engine.update("voice",   EmotionVector(anger=0.55, sadness=0.10, confidence=0.75, source="voice"))
     fused = engine.fuse()
     dominant, val = engine.get_dominant_emotion(fused)
-    status = "✅ PASS" if dominant == "sadness" else "❌ FAIL"
+    status = "✅ PASS" if dominant == "anger" else "❌ FAIL"
     print(f"  {status} dominant={dominant} ({val:.3f})")
-    print(f"  Full vector: {fused.to_dict()}")
+    print(f"  Full: {fused.to_dict()}")
 
-    # ── Test 2: joy suppression gate ─────────────────────────────────────
-    print("\n[TEST 2] Joy gate — joy should be suppressed when sadness > 0.40")
-    engine2 = EmotionFusionEngine(emotion_bias=TEST_BIAS)
-    engine2.update("face",    EmotionVector(joy=0.30, sadness=0.50, confidence=0.85, source="face"))
-    engine2.update("posture", EmotionVector(sadness=0.55, confidence=0.70, source="posture"))
-    engine2.update("voice",   EmotionVector(sadness=0.45, confidence=0.60, source="voice"))
+    # ── Test 2: Downturned-mouth misfire — disambiguation ON ────────────────
+    print("\n[TEST 2] Downturned mouth (face=anger, posture+voice=sadness) → must be sadness (disambiguation ON)")
+    engine2 = EmotionFusionEngine(emotion_bias=NEUTRAL_BIAS, enable_anger_disambiguation=True)
+    engine2.update("face",    EmotionVector(anger=0.55, sadness=0.30, confidence=0.85, source="face"))
+    engine2.update("posture", EmotionVector(sadness=0.60, anger=0.10, confidence=0.75, source="posture"))
+    engine2.update("voice",   EmotionVector(sadness=0.40, anger=0.05, confidence=0.60, source="voice"))
     fused2 = engine2.fuse()
     dominant2, val2 = engine2.get_dominant_emotion(fused2)
     status2 = "✅ PASS" if dominant2 == "sadness" else "❌ FAIL"
-    print(f"  {status2} dominant={dominant2} ({val2:.3f})  joy={fused2.joy:.3f}")
+    print(f"  {status2} dominant={dominant2} ({val2:.3f})")
 
-    # ── Test 3: genuine joy should still pass ─────────────────────────────
-    print("\n[TEST 3] Genuine joy — should NOT be suppressed")
-    engine3 = EmotionFusionEngine(emotion_bias=TEST_BIAS)
-    engine3.update("face",    EmotionVector(joy=0.80, confidence=0.90, source="face"))
-    engine3.update("posture", EmotionVector(joy=0.65, confidence=0.75, source="posture"))
-    engine3.update("voice",   EmotionVector(joy=0.70, confidence=0.80, source="voice"))
+    # ── Test 3: Joy gate — only fires when sadness clearly dominates ─────────
+    print("\n[TEST 3] Joy gate — joy suppressed ONLY when sadness clearly dominates")
+    engine3 = EmotionFusionEngine(emotion_bias=NEUTRAL_BIAS)
+    engine3.update("face",    EmotionVector(joy=0.30, sadness=0.60, confidence=0.85, source="face"))
+    engine3.update("posture", EmotionVector(sadness=0.55, confidence=0.70, source="posture"))
+    engine3.update("voice",   EmotionVector(sadness=0.50, confidence=0.60, source="voice"))
     fused3 = engine3.fuse()
     dominant3, val3 = engine3.get_dominant_emotion(fused3)
-    status3 = "✅ PASS" if dominant3 == "joy" else "❌ FAIL"
-    print(f"  {status3} dominant={dominant3} ({val3:.3f})")
+    status3 = "✅ PASS" if dominant3 == "sadness" else "❌ FAIL"
+    print(f"  {status3} dominant={dominant3} ({val3:.3f})  joy={fused3.joy:.3f}")
 
-    # ── Test 4: sadness streak → sustain detection ────────────────────────
-    print("\n[TEST 4] Sadness streak — sustained=True after 2 cycles")
-    engine4 = EmotionFusionEngine(emotion_bias=TEST_BIAS)
-    for i in range(2):
-        engine4.update("face", EmotionVector(sadness=0.65, confidence=0.85, source="face"))
-        fused4 = engine4.fuse()
-        assessment = engine4.assess_sadness_state(fused4)
-    status4 = "✅ PASS" if assessment.sustained else "❌ FAIL"
-    print(f"  {status4} sustained={assessment.sustained} "
-          f"support_recommended={assessment.support_recommended}")
+    # ── Test 4: Genuine joy should never be suppressed ─────────────────────
+    print("\n[TEST 4] Genuine joy — must NOT be suppressed")
+    engine4 = EmotionFusionEngine(emotion_bias=NEUTRAL_BIAS)
+    engine4.update("face",    EmotionVector(joy=0.80, confidence=0.90, source="face"))
+    engine4.update("posture", EmotionVector(joy=0.65, confidence=0.75, source="posture"))
+    engine4.update("voice",   EmotionVector(joy=0.70, confidence=0.80, source="voice"))
+    fused4 = engine4.fuse()
+    dominant4, val4 = engine4.get_dominant_emotion(fused4)
+    status4 = "✅ PASS" if dominant4 == "joy" else "❌ FAIL"
+    print(f"  {status4} dominant={dominant4} ({val4:.3f})")
+
+    # ── Test 5: Fear should survive fusion ─────────────────────────────────
+    print("\n[TEST 5] Fear signal — must survive as dominant")
+    engine5 = EmotionFusionEngine(emotion_bias=NEUTRAL_BIAS)
+    engine5.update("face",  EmotionVector(fear=0.70, sadness=0.20, confidence=0.80, source="face"))
+    engine5.update("voice", EmotionVector(fear=0.60, confidence=0.75, source="voice"))
+    fused5 = engine5.fuse()
+    dominant5, val5 = engine5.get_dominant_emotion(fused5)
+    status5 = "✅ PASS" if dominant5 == "fear" else "❌ FAIL"
+    print(f"  {status5} dominant={dominant5} ({val5:.3f})")
+
+    # ── Test 6: Sadness streak ─────────────────────────────────────────────
+    print("\n[TEST 6] Sadness streak → sustained=True after 3 cycles")
+    engine6 = EmotionFusionEngine(emotion_bias=NEUTRAL_BIAS)
+    for i in range(3):
+        engine6.update("face", EmotionVector(sadness=0.65, confidence=0.85, source="face"))
+        fused6 = engine6.fuse()
+        assessment = engine6.assess_sadness_state(fused6)
+    status6 = "✅ PASS" if assessment.sustained else "❌ FAIL"
+    print(f"  {status6} sustained={assessment.sustained} support_recommended={assessment.support_recommended}")
 
     print("\n" + "=" * 60)
-    print("v2 self-test complete.")
+    print("v3 self-test complete.")
     print("=" * 60)

@@ -217,7 +217,7 @@
 
 <div class="ws-status">
   <span class="dot" id="wsDot"></span>
-  <span id="wsLabel">connecting to ws://localhost:8765...</span>
+  <span id="wsLabel">connecting to ws://0.0.0.0:8765...</span>
 </div>
 
 <div class="grid">
@@ -312,8 +312,23 @@
 </div>
 
 <script>
-const WS_URL = `ws://localhost:8765`;
+const WS_HOST = window.location.hostname || "localhost";
+const WS_URL = `ws://${WS_HOST}:8765`;
 const EMOTIONS = ["joy","sadness","fear","anger","disgust","surprise"];
+const EMOTION_ALIASES = {
+  happy: "joy",
+  excited: "joy",
+  calm: "joy",
+  neutral: "joy",
+  sad: "sadness",
+  depressed: "sadness",
+  scared: "fear",
+  anxious: "fear",
+  disgusted: "disgust",
+  angry: "anger",
+  frustrated: "anger",
+  surprised: "surprise",
+};
 
 let ws = null;
 const chatHistory = [];
@@ -323,7 +338,7 @@ function connect() {
 
   ws.onopen = () => {
     document.getElementById("wsDot").className = "dot on";
-    document.getElementById("wsLabel").textContent = `connected — ws://localhost:8765`;
+    document.getElementById("wsLabel").textContent = `connected — ${WS_URL}`;
   };
 
   ws.onclose = () => {
@@ -372,16 +387,26 @@ function handleMessage(msg) {
   }
 }
 
+function normalizeEmotion(raw) {
+  const key = String(raw || "").toLowerCase();
+  if (EMOTIONS.includes(key)) return key;
+  const alias = EMOTION_ALIASES[key];
+  return EMOTIONS.includes(alias) ? alias : null;
+}
+
 function renderBars(containerId, data, confId) {
   const el = document.getElementById(containerId);
-  if (!el || !data) return;
+  if (!el) return;
+  const safe = data || {};
 
-  if (confId && data.confidence !== undefined) {
-    document.getElementById(confId).textContent = `conf: ${data.confidence.toFixed(2)}`;
+  if (confId) {
+    const conf = safe.confidence;
+    document.getElementById(confId).textContent =
+      conf !== undefined ? `conf: ${Number(conf).toFixed(2)}` : "conf: 0.00";
   }
 
   el.innerHTML = EMOTIONS.map(k => {
-    const v = data[k] ?? 0;
+    const v = safe[k] ?? 0;
     const pct = Math.round(v * 100);
     return `
       <div class="ebar">
@@ -415,7 +440,11 @@ function updateDiagnostics(d) {
 
 function updateRioState(msg) {
   const rio = msg.rio_state || {};
-  const vec = rio.emotion_vector || {};
+  let vec = rio.emotion_vector || {};
+  if (!vec || Object.keys(vec).length === 0) {
+    const fallback = normalizeEmotion(msg.expression);
+    if (fallback) vec = { [fallback]: 1 };
+  }
   renderBars("rioBars", vec, null);
 
   const dom = Object.entries(vec)
@@ -482,3 +511,4 @@ connect();
 </script>
 </body>
 </html>
+

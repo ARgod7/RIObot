@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # New LLM emotional engine runs on port 3001 (server.js)
 # Old facial engine runs on port 5000 (index.js)
-RIO_BRIDGE_URL = "http://localhost:3001"
+RIO_BRIDGE_URL = "http://0.0.0.0:3001"
 RIO_BRIDGE_TIMEOUT = 5.0
 RIO_BRIDGE_RETRIES = 3
 
@@ -385,7 +385,7 @@ def send_expression(expression_intent: str) -> None:
 def send_audio_to_browser(filename: str) -> None:
     """
     Send audio file to browser for playback via socket.io on port 3001.
-    Makes POST request to http://localhost:3001/play-audio
+    Makes POST request to http://0.0.0.0:3001/play-audio
     
     Args:
         filename: Relative path to audio file (e.g., "audio/response.mp3")

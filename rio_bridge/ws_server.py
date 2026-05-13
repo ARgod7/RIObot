@@ -26,6 +26,8 @@ import numpy as np
 
 import websockets
 
+from cognition.agents.servo_agent import stop_alive_animation
+
 logger = logging.getLogger("ws_server")
 
 # ── Shared state ──────────────────────────────────────────────────────────
@@ -125,6 +127,12 @@ async def _handle_message(websocket, msg: dict):
         except Exception as e:
             logger.warning(f"[WS] Audio decode error: {e}")
 
+    elif msg_type == "audio_state":
+        # Browser notifies when audio starts/stops playing
+        playing = bool(msg.get("playing", False))
+        if not playing:
+            stop_alive_animation()
+
 
 def _feed_audio_to_voice_detector(audio_bytes: bytes, sample_rate: int):
     """Pass PCM16 audio to voice_detector if it supports feed_audio_chunk."""
@@ -135,6 +143,7 @@ def _feed_audio_to_voice_detector(audio_bytes: bytes, sample_rate: int):
             detector.feed_audio_chunk(audio_np, sample_rate=sample_rate)
     except Exception as e:
         logger.debug(f"[WS] Voice detector feed skipped: {e}")
+
 
 
 _voice_detector_instance = None
@@ -206,8 +215,8 @@ async def _flush_response_queue():
 async def _run_server():
     global _loop
     _loop = asyncio.get_running_loop()
-    logger.info("[WS] WebSocket server listening on ws://localhost:8765")
-    async with websockets.serve(_handler, "localhost", 8765):
+    logger.info("[WS] WebSocket server listening on ws://0.0.0.0:8765")
+    async with websockets.serve(_handler, "0.0.0.0", 8765):
         await asyncio.Future()   # run forever
 
 

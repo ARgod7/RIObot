@@ -128,7 +128,7 @@ class PostureEmotionDetector:
           4. Shoulder width ratio (open vs closed) → joy vs sadness
           5. Spine straightness (shoulder-hip alignment) → positive vs negative
         """
-        key_indices = [0, 11, 12, 13, 14, 23, 24]
+        key_indices = [0, 11, 12, 13, 14, 15, 16, 23, 24]
         pts = self._landmarks_to_xy(landmarks, key_indices, frame_w, frame_h)
 
         nose          = pts[0]
@@ -136,6 +136,8 @@ class PostureEmotionDetector:
         r_shoulder    = pts[12]
         l_elbow       = pts[13]
         r_elbow       = pts[14]
+        l_wrist       = pts[15]
+        r_wrist       = pts[16]
         l_hip         = pts[23]
         r_hip         = pts[24]
 
@@ -152,63 +154,56 @@ class PostureEmotionDetector:
         hip_mid_x = (l_hip[0] + r_hip[0]) / 2
         spine_offset = abs(shoulder_mid_x - hip_mid_x) / (frame_w or 1)
 
-        # ── Rule 1: Shoulder droop ──────────────────────────────────────────
-        if shoulder_tilt > 0.04:
-            sadness_from_tilt = min(1.0, shoulder_tilt * 8)
-            emotion_scores["sadness"] += sadness_from_tilt * 0.5
+        wrists_above_shoulders = (l_wrist[1] < l_shoulder[1]) and (r_wrist[1] < r_shoulder[1])
+        left_hand_on_head = _dist(l_wrist, nose) / (frame_w or 1) < 0.10 and l_wrist[1] < l_shoulder[1]
+        right_hand_on_head = _dist(r_wrist, nose) / (frame_w or 1) < 0.10 and r_wrist[1] < r_shoulder[1]
+        hand_on_head = left_hand_on_head or right_hand_on_head
+        turned_sideways = ratio < 0.75
+
+        # ── Rule 1: Head down → sadness ───────────────────────────────────
+        # Raised threshold: 0.06 → 0.12 so a normal seated posture doesn't
+        # fire this. Also reduced multiplier so partial head drops don't
+        # dominate the vector.
+        if head_drop > 0.12:
+            emotion_scores["sadness"] += min(0.65, head_drop * 4) * 0.55
             evidence_count += 1
 
-        # ── Rule 2: Head drop / bow (no joy here — joy only from composed gate below)
-        if head_drop > 0.05:
-            sadness_from_head = min(1.0, head_drop * 5)
-            emotion_scores["sadness"] += sadness_from_head * 0.3
-            emotion_scores["fear"] += sadness_from_head * 0.15
+        # ── Rule 2: Hand on head → sadness/cry ────────────────────────────
+        if hand_on_head:
+            emotion_scores["sadness"] += 0.50   # reduced from 0.60
             evidence_count += 1
 
-        # ── Rule 2b: Leaning forward (nose closer to camera than shoulders)
-        shoulder_mid_z = (landmarks[11].z + landmarks[12].z) / 2
-        nose_z = landmarks[0].z
-        lean_forward = shoulder_mid_z - nose_z
-        if lean_forward > 0.05:
-            sadness_from_lean = min(1.0, lean_forward * 6)
-            emotion_scores["sadness"] += sadness_from_lean * 0.4
+        # ── Rule 3: Turned sideways → disgust ─────────────────────────────
+        if turned_sideways:
+            emotion_scores["disgust"] += 0.35   # reduced from 0.45
             evidence_count += 1
 
-        # ── Rule 3: Shoulder width (closed / hunched only — wide alone is not "joy")
-        if ratio < 0.85:
-            emotion_scores["sadness"] += 0.25
-            emotion_scores["fear"] += 0.1
+        # ── Rule 4: Hands up (fists approximated) → anger ─────────────────
+        if wrists_above_shoulders:
+            emotion_scores["anger"] += 0.50     # reduced from 0.55
             evidence_count += 1
 
-        # ── Rule 4: Elbow proximity to body ────────────────────────────────
-        l_elbow_in = l_elbow[0] - l_shoulder[0]
-        r_elbow_in = r_shoulder[0] - r_elbow[0]
-        arms_crossed_score = max(0, l_elbow_in) / (frame_w or 1) + max(0, r_elbow_in) / (frame_w or 1)
-        if arms_crossed_score > 0.05:
-            emotion_scores["disgust"] += min(0.4, arms_crossed_score * 3) * 0.5
-            emotion_scores["anger"] += min(0.3, arms_crossed_score * 2) * 0.3
-            evidence_count += 1
-
-        # ── Rule 5: Sideways lean (no joy from spine straightness alone)
-        if spine_offset > 0.12:
-            emotion_scores["sadness"] += 0.2
-            evidence_count += 1
-
-        # ── Joy: only "composed upright" — straight spine, level head, level shoulders, natural openness
-        # (Pose landmarks only; "face straight" ≈ head not bowed and not wildly tilted vs shoulders.)
-        upright_spine = spine_offset < 0.042
-        head_level = -0.12 < head_drop < 0.035
-        shoulders_level = shoulder_tilt < 0.028
-        natural_width = 0.92 < ratio < 1.28
+        # ── Joy: upright neutral posture — loosened requirements so a calm,
+        # seated person registers as neutral-to-positive rather than sad.
+        # Spine and shoulder-level conditions are now softer; head_drop
+        # window is widened so slightly forward-leaning people can still
+        # produce joy.
+        upright_spine = spine_offset < 0.08    # was 0.05
+        head_level = -0.12 < head_drop < 0.06  # was -0.10 < x < 0.03
+        shoulders_level = shoulder_tilt < 0.06  # was 0.03
+        natural_width = 0.80 < ratio < 1.50    # was 0.90 < x < 1.30
 
         if upright_spine and head_level and shoulders_level and natural_width:
-            spine_quality = max(0.0, 1.0 - spine_offset / 0.042)
-            head_quality = max(0.0, 1.0 - abs(head_drop + 0.02) / 0.14)
-            tilt_quality = max(0.0, 1.0 - shoulder_tilt / 0.028)
-            width_quality = 1.0 - abs(ratio - 1.08) / 0.35
+            spine_quality = max(0.0, 1.0 - spine_offset / 0.08)
+            head_quality  = max(0.0, 1.0 - abs(head_drop + 0.015) / 0.15)
+            tilt_quality  = max(0.0, 1.0 - shoulder_tilt / 0.06)
+            width_quality = 1.0 - abs(ratio - 1.08) / 0.50
             width_quality = max(0.0, min(1.0, width_quality))
-            composed = (spine_quality * 0.35 + head_quality * 0.35 + tilt_quality * 0.15 + width_quality * 0.15)
-            emotion_scores["joy"] = min(0.55, 0.22 + 0.38 * composed)
+            composed = (spine_quality * 0.35 + head_quality * 0.35
+                        + tilt_quality * 0.15 + width_quality * 0.15)
+            # Raised cap: 0.45 → 0.60 so posture can meaningfully contribute
+            # joy to the fusion when the person looks relaxed and upright.
+            emotion_scores["joy"] = min(0.60, 0.22 + 0.40 * composed)
             evidence_count += 1
 
         # ── Normalise: clamp each score to [0, 1] ──────────────────────────

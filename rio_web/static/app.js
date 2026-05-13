@@ -12,6 +12,7 @@ let audioUnlocked = false;
 /** Last dialogue expression — drives idle vs speaking mouth art */
 let currentExpression = "calm";
 let rioSpeaking = false;
+let speakingFallbackTimer = null;
 
 const emotionState = document.getElementById("emotionState");
 const audioPlayer  = document.getElementById("audioPlayer");
@@ -72,16 +73,51 @@ function appendBubble(role, text) {
   log.scrollTop = log.scrollHeight;
 }
 
+function sendAudioState(playing) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "audio_state", playing: !!playing }));
+}
+
 function setRioSpeaking(on) {
   rioSpeaking = !!on;
   applyMouthState();
 }
 
-audioPlayer.addEventListener("playing", () => setRioSpeaking(true));
-audioPlayer.addEventListener("ended", () => setRioSpeaking(false));
-audioPlayer.addEventListener("error", () => setRioSpeaking(false));
+function clearSpeakingFallback() {
+  if (speakingFallbackTimer) {
+    clearTimeout(speakingFallbackTimer);
+    speakingFallbackTimer = null;
+  }
+}
+
+function armSpeakingFallback(ms = 12000) {
+  clearSpeakingFallback();
+  speakingFallbackTimer = setTimeout(() => {
+    setRioSpeaking(false);
+  }, ms);
+}
+
+audioPlayer.addEventListener("playing", () => {
+  clearSpeakingFallback();
+  setRioSpeaking(true);
+  sendAudioState(true);
+});
+audioPlayer.addEventListener("ended", () => {
+  clearSpeakingFallback();
+  setRioSpeaking(false);
+  sendAudioState(false);
+});
+audioPlayer.addEventListener("error", () => {
+  clearSpeakingFallback();
+  setRioSpeaking(false);
+  sendAudioState(false);
+});
 audioPlayer.addEventListener("pause", () => {
-  if (audioPlayer.ended) setRioSpeaking(false);
+  if (audioPlayer.ended) {
+    clearSpeakingFallback();
+    setRioSpeaking(false);
+    sendAudioState(false);
+  }
 });
 
 function connect() {
@@ -155,25 +191,33 @@ function playAudio(url) {
   audioPlayer.volume = 1.0;
   audioPlayer.style.display = "block";
   audioPlayer.load();
+  setRioSpeaking(true);
+  sendAudioState(true);
+  armSpeakingFallback();
 
   audioPlayer.oncanplaythrough = () => {
     console.log("[RIO] audio canplaythrough:", audioPlayer.src);
   };
   audioPlayer.onerror = () => {
     console.error("[RIO] audio element error for src:", audioPlayer.src);
+    clearSpeakingFallback();
     setRioSpeaking(false);
+    sendAudioState(false);
     showPlayPrompt(url);
   };
 
   if (!audioUnlocked) {
     console.warn("[RIO] Audio locked until user interaction");
     setRioSpeaking(false);
+    sendAudioState(false);
     showPlayPrompt(url);
     return;
   }
   audioPlayer.play().catch(e => {
     console.warn("[RIO] Autoplay blocked:", e.message);
+    clearSpeakingFallback();
     setRioSpeaking(false);
+    sendAudioState(false);
     showPlayPrompt(url);
   });
 }

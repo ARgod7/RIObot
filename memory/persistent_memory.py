@@ -124,6 +124,14 @@ class PersistentMemory:
         # Likeness grows with good conversations
         profile.likeness_score = min(1.0, conversation_quality + 0.05)
 
+    def update_user_name(self, user_id: str, name: str) -> None:
+        """Persist a user name for future sessions."""
+        cleaned = (name or "").strip()
+        if not cleaned:
+            return
+        profile = self.get_user(user_id)
+        profile.name = cleaned
+
     def save(self):
         """Persist profiles to disk"""
         try:
@@ -149,7 +157,13 @@ def get_persistent_memory(filepath: str = "memory/mock_data/user_profiles.json")
     return _persistent_memory
 
 
+def set_user_name(user_id: str, name: str) -> None:
+    """Update a user's display name and persist it."""
+    memory = get_persistent_memory()
+    memory.update_user_name(user_id, name)
+    memory.save()
+
+
 def save_all_profiles():
     """Save all user profiles"""
     get_persistent_memory().save()
-

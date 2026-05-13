@@ -197,16 +197,32 @@ def hydrate_memory_from_file(filepath: str = "memory/short_term_memory.json") ->
     print(f"✓ Memory restored: {len(memory.exchanges)} exchanges from {filepath}")
 
 
+def reset_memory() -> None:
+    """Clear the in-memory exchanges and persist an empty snapshot."""
+    memory = get_short_term_memory()
+    memory.clear()
+    save_memory_to_file()
+
+
 def get_summary(n: Optional[int] = None) -> str:
     """Return last N interactions as plain text for LLM context (default: full window)."""
     memory = get_short_term_memory()
     if not memory.exchanges:
         return ""
 
+    lines = []
+    try:
+        from memory.persistent_memory import get_persistent_memory
+        profile = get_persistent_memory().get_user(memory.user_id)
+        if profile.name and profile.name.lower() != "user":
+            lines.append(f"User name: {profile.name}")
+            lines.append("")
+    except Exception:
+        pass
+
     take = n if n is not None else memory.size
     take = max(1, min(take, len(memory.exchanges)))
     recent = memory.exchanges[-take:]
-    lines = []
     for ex in recent:
         lines.append(f"User: {ex.user_input[:200]}")
         lines.append(f"RIO (intervention {ex.rio_intent}): {ex.rio_response[:200]}")

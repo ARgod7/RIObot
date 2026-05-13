@@ -1,6 +1,6 @@
 """
 Servo Agent — RIO Embodied Motion Controller
-Drives all 11 servo joints from poses.json based on emotional state.
+Drives all 11 servo joints from poses_generated.json based on emotional state.
 Supports:
   - LLM/agent-chosen emotion → pose lookup
   - Micro-movement "alive" animation while speaking
@@ -17,7 +17,7 @@ Servo slot mapping (8-slot serial protocol):
   Slot 6: left elbow (le)
   Slot 7: base
 
-  NOTE: hv, lear, rear are stored in poses.json but the current
+  NOTE: hv, lear, rear are stored in poses files but the current
   8-slot protocol has no spare slots for them. Set ENABLE_EXTENDED_SERVOS=True
   below when you upgrade to a 12-slot controller — the builder functions
   already compute them so no other changes needed.
@@ -47,8 +47,9 @@ SERVO_COM_PORT: int = int(os.getenv("SERVO_COM_PORT", "5"))
 SERVO_BAUD_RATE: int = int(os.getenv("SERVO_BAUD_RATE", "9600"))
 SERVO_TIMEOUT_S: float = float(os.getenv("SERVO_TIMEOUT_S", "1"))
 
-# Path to poses.json — resolved from project root
-POSES_FILE: Path = Path(__file__).parent.parent.parent / "servo_controls" / "poses.json"
+# Path to poses files — resolved from project root
+POSES_FILE: Path = Path(__file__).parent.parent.parent / "servo_controls" / "poses_generated.json"
+POSES_FALLBACK_FILE: Path = Path(__file__).parent.parent.parent / "servo_controls" / "poses.json"
 
 # Set True when controller is upgraded to 12 slots (adds hv, lear, rear)
 ENABLE_EXTENDED_SERVOS: bool = False
@@ -56,7 +57,16 @@ ENABLE_EXTENDED_SERVOS: bool = False
 # Micro-movement config while speaking
 ALIVE_INTERVAL_S: float = 0.8        # how often to nudge joints
 ALIVE_AMPLITUDE: int = 6             # max degrees of random sway
-ALIVE_JOINTS = ["rsv", "lsv", "hh"] # which joints do the alive sway
+ALIVE_JOINTS = ["rsv", "lsv", "rsh", "lsh", "re", "le", "hh"]
+ALIVE_JOINT_AMPLITUDE = {
+    "hh": 6,
+    "rsv": 5,
+    "lsv": 5,
+    "rsh": 4,
+    "lsh": 4,
+    "re": 3,
+    "le": 3,
+}
 
 # Transition step size per tick (smaller = smoother but slower)
 TRANSITION_STEP: int = 4
@@ -69,24 +79,35 @@ DEFAULT_EMOTION: str = "joy"
 # Pose library — loaded once at import
 # ---------------------------------------------------------------------------
 
-def _load_poses(path: Path) -> Dict[str, Dict]:
-    """Load and normalise poses.json. Fixes typo 'sadnesss' → 'sadness'."""
+def _load_poses(path: Path) -> Dict[str, Dict[int, Dict[str, int]]]:
+    """Load and normalise poses with intensity variants (0-4)."""
     try:
         raw = json.loads(path.read_text())
     except Exception as exc:
-        logger.error("Failed to load poses.json: %s", exc)
+        logger.error("Failed to load poses from %s: %s", path, exc)
         return {}
 
-    normalised: Dict[str, Dict] = {}
+    normalised: Dict[str, Dict[int, Dict[str, int]]] = {}
     for key, variants in raw.items():
-        clean_key = key.strip().lower().rstrip("s") if key == "sadnesss" else key.strip().lower()
-        # Flatten variants dict — take variant "0" or first available
-        variant_data = variants.get("0") or next(iter(variants.values()), {})
-        normalised[clean_key] = {k: int(v) for k, v in variant_data.items()}
+        clean_key = "sadness" if key.strip().lower() == "sadnesss" else key.strip().lower()
+        variant_map: Dict[int, Dict[str, int]] = {}
+        for variant_key, variant_data in (variants or {}).items():
+            try:
+                idx = int(variant_key)
+            except (TypeError, ValueError):
+                continue
+            variant_map[idx] = {k: int(v) for k, v in (variant_data or {}).items()}
+
+        if not variant_map and isinstance(variants, dict):
+            # Single-frame file fallback: treat entire dict as intensity 0
+            variant_map[0] = {k: int(v) for k, v in variants.items()}
+
+        if variant_map:
+            normalised[clean_key] = variant_map
     return normalised
 
 
-POSES: Dict[str, Dict] = _load_poses(POSES_FILE)
+POSES: Dict[str, Dict[int, Dict[str, int]]] = _load_poses(POSES_FILE) or _load_poses(POSES_FALLBACK_FILE)
 
 EMOTION_ALIASES: Dict[str, str] = {
     "happy": "joy",
@@ -113,6 +134,26 @@ def resolve_emotion(emotion: str) -> str:
         return EMOTION_ALIASES[e]
     logger.warning("Unknown emotion '%s', falling back to '%s'", emotion, DEFAULT_EMOTION)
     return DEFAULT_EMOTION
+
+
+def _coerce_intensity(intensity: Optional[int]) -> int:
+    if intensity is None:
+        return 2
+    try:
+        return max(0, min(4, int(intensity)))
+    except (TypeError, ValueError):
+        return 2
+
+
+def _pick_pose(emotion: str, intensity: Optional[int]) -> Dict[str, int]:
+    intensity_idx = _coerce_intensity(intensity)
+    variants = POSES.get(emotion, {})
+    if not variants:
+        return {}
+    if intensity_idx in variants:
+        return dict(variants[intensity_idx])
+    closest = min(variants.keys(), key=lambda k: abs(k - intensity_idx))
+    return dict(variants[closest])
 
 
 # ---------------------------------------------------------------------------
@@ -240,14 +281,15 @@ def _alive_loop(port: "serial.Serial", base_pose: Dict[str, int]) -> None:
             if joint in nudged:
                 # Each joint gets a slightly different phase so they don't all move together
                 phase = i * (math.pi / len(ALIVE_JOINTS))
-                sway = int(ALIVE_AMPLITUDE * math.sin(t * 1.5 + phase))
+                amp = ALIVE_JOINT_AMPLITUDE.get(joint, ALIVE_AMPLITUDE)
+                sway = int(amp * math.sin(t * 1.5 + phase))
                 nudged[joint] = _clamp(nudged[joint] + sway)
         _send_joints(port, nudged)
         t += ALIVE_INTERVAL_S
         time.sleep(ALIVE_INTERVAL_S)
 
 
-def start_alive_animation(emotion: str) -> None:
+def start_alive_animation(emotion: str, intensity: Optional[int] = None) -> None:
     """
     Start the background alive animation for the given emotion pose.
     Call this when TTS starts speaking.
@@ -260,7 +302,7 @@ def start_alive_animation(emotion: str) -> None:
         return
 
     resolved = resolve_emotion(emotion)
-    base_pose = dict(POSES.get(resolved, {}))
+    base_pose = _pick_pose(resolved, intensity)
     if not base_pose:
         return
 
@@ -291,13 +333,14 @@ def run_servo(
     emotion: str,
     speaking: bool = False,
     transition: bool = True,
+    intensity: Optional[int] = None,
 ) -> Dict[str, str]:
     """
     Main entry point for the servo agent.
 
     Args:
         emotion:    Emotion string — any Ekman emotion or alias.
-                    The agent resolves it to the closest pose in poses.json.
+                    The agent resolves it to the closest pose in poses files.
         speaking:   If True, starts the alive micro-movement animation.
                     If False, just holds the pose.
         transition: If True, smoothly interpolates from current pose to new pose.
@@ -308,7 +351,7 @@ def run_servo(
     global _current_pose
 
     resolved = resolve_emotion(emotion)
-    target_pose = dict(POSES.get(resolved, {}))
+    target_pose = _pick_pose(resolved, intensity)
 
     if not target_pose:
         logger.warning("No pose found for emotion '%s'", resolved)
@@ -328,12 +371,19 @@ def run_servo(
     payload = _build_payload(target_pose)
 
     if speaking:
-        start_alive_animation(resolved)
+        start_alive_animation(resolved, intensity=intensity)
     else:
         stop_alive_animation()
         _send_joints(port, target_pose)  # hold still
 
-    logger.info("Pose set: %s → %s | speaking=%s | payload=%s", emotion, resolved, speaking, payload)
+    logger.info(
+        "Pose set: %s → %s | intensity=%s | speaking=%s | payload=%s",
+        emotion,
+        resolved,
+        _coerce_intensity(intensity),
+        speaking,
+        payload,
+    )
     return {
         "action": "pose_set",
         "emotion": emotion,
@@ -371,7 +421,7 @@ def get_crewai_tool():
         from crewai.tools import tool  # type: ignore
 
         @tool("ServoMotionTool")
-        def servo_motion_tool(emotion: str, speaking: bool = False) -> str:
+        def servo_motion_tool(emotion: str, speaking: bool = False, intensity: int = 2) -> str:
             """
             Drive RIO's servo motors to match an emotional state.
             Use this tool whenever RIO starts speaking or transitions emotion.
@@ -386,7 +436,7 @@ def get_crewai_tool():
             Returns:
                 JSON string describing the action taken.
             """
-            result = run_servo(emotion=emotion, speaking=speaking)
+            result = run_servo(emotion=emotion, speaking=speaking, intensity=intensity)
             return json.dumps(result)
 
         return servo_motion_tool
@@ -408,7 +458,7 @@ if __name__ == "__main__":
     emotions_to_test = ["joy", "sadness", "fear", "anger", "surprise", "disgust"]
     for em in emotions_to_test:
         print(f"→ Testing pose: {em}")
-        result = run_servo(em, speaking=True, transition=True)
+        result = run_servo(em, speaking=True, transition=True, intensity=2)
         print(f"  Result: {result}")
         time.sleep(3)
         stop_alive_animation()

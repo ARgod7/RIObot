@@ -4,7 +4,7 @@
 // Auto-reconnects if WebSocket drops
 
 (function() {
-  const WS_URL = "ws://localhost:8765";
+  const WS_URL = "ws://0.0.0.0:8765";
   const micBtn  = document.getElementById("micBtn");
   const micDot  = document.getElementById("micDot");
   const micHintEl = document.getElementById("micHint");

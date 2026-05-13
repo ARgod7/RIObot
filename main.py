@@ -12,6 +12,7 @@ import logging
 import sys
 import traceback
 import os
+import re
 from pathlib import Path
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from urllib.parse import urlparse
@@ -49,6 +50,9 @@ from rio_bridge.rio_client import call_rio_engine, send_expression, send_audio_t
 from tts.gtts_wrapper import speak
 from rio_bridge.ws_server import send_response_to_browser
 from config import EMOTION_WS_BROADCAST_MIN_S
+from memory.short_term_memory import reset_memory
+from memory.persistent_memory import set_user_name
+from config import CLEAR_MEMORY_ON_START
 
 
 def has_hindi(text: str) -> bool:
@@ -57,6 +61,15 @@ def has_hindi(text: str) -> bool:
 
 
 _EKMAN_KEYS = ("joy", "sadness", "fear", "disgust", "anger", "surprise")
+
+_NAME_TOKEN = r"(?:[A-Z]|[a-z])(?:[A-Z]|[a-z]|['-])*"
+
+_NAME_PATTERNS = [
+    re.compile(rf"\bmy name is\s+({_NAME_TOKEN}(?:\s+{_NAME_TOKEN})?)\b", re.IGNORECASE),
+    re.compile(rf"\bi am\s+({_NAME_TOKEN}(?:\s+{_NAME_TOKEN})?)\b", re.IGNORECASE),
+    re.compile(rf"\bi'm\s+({_NAME_TOKEN}(?:\s+{_NAME_TOKEN})?)\b", re.IGNORECASE),
+    re.compile(rf"\bcall me\s+({_NAME_TOKEN}(?:\s+{_NAME_TOKEN})?)\b", re.IGNORECASE),
+]
 
 
 def _neutral_emotions() -> dict:
@@ -157,11 +170,52 @@ def start_web_server(port: int = 8000):
         def log_message(self, format, *args):
             pass
 
-    server = HTTPServer(("localhost", port), Handler)
+    server = HTTPServer(("0.0.0.0", port), Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
-    logger.info(f"Web server started on http://localhost:{port}")
+    logger.info(f"Web server started on http://0.0.0.0:{port}")
     return t
+
+
+def _dominant_from_vector(vec: dict) -> tuple[str, float]:
+    if not vec:
+        return ("neutral", 0.0)
+    dom, val = max(vec.items(), key=lambda item: item[1])
+    return (str(dom), float(val))
+
+
+def _fallback_rio_state(stimulus_dict: dict) -> dict:
+    emotions = stimulus_dict.get("emotions", {})
+    dominant, _ = _dominant_from_vector(emotions)
+    return {
+        "emotion_vector": dict(emotions),
+        "dominant_emotion": dominant,
+        "trust": stimulus_dict.get("trust", 0.0),
+        "likeness": stimulus_dict.get("likeness", 0.0),
+        "stagnation_counter": 0,
+    }
+
+
+def _extract_user_name(text: str) -> str | None:
+    if not text:
+        return None
+    for pattern in _NAME_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            name = match.group(1).strip()
+            if not name:
+                return None
+            parts = name.split()
+            if len(parts) > 2:
+                parts = parts[:2]
+            return " ".join(p.capitalize() for p in parts)
+    return None
+
+
+def _remember_user_name(text: str) -> None:
+    name = _extract_user_name(text)
+    if name:
+        set_user_name("default_user", name)
 
 
 def main():
@@ -214,7 +268,7 @@ def main():
         # ============================================================
         # Step 1c: Start web server on port 8000 (new LLM + green dot UI)
         # ============================================================
-        logger.info("Starting web server for LLM UI on http://localhost:8000...")
+        logger.info("Starting web server for LLM UI on http://0.0.0.0:8000...")
         web_server_thread = start_web_server(port=8000)
         time.sleep(1)
 
@@ -223,7 +277,11 @@ def main():
         # Step 2: Start perception in background thread
         # ============================================================
         # ============================================================
-        hydrate_memory_from_file()
+        if CLEAR_MEMORY_ON_START:
+            logger.info("Clearing short-term memory on startup...")
+            reset_memory()
+        else:
+            hydrate_memory_from_file()
 
         logger.info("Starting perception loop...")
         perception_thread = threading.Thread(
@@ -238,7 +296,7 @@ def main():
         # ============================================================
         # Step 2b: Start WebSocket server for browser microphone
         # ============================================================
-        logger.info("Starting WebSocket server for browser microphone (ws://localhost:8765)...")
+        logger.info("Starting WebSocket server for browser microphone (ws://0.0.0.0:8765)...")
         start_ws_server()
         time.sleep(1)  # Wait for WebSocket server to boot
 
@@ -255,6 +313,8 @@ def main():
 
             try:
                 user_transcript = (get_latest_transcript() or "").strip()
+                if user_transcript:
+                    _remember_user_name(user_transcript)
 
                 # Always publish live perception → /details WebSocket (not only after transcript).
                 stimulus = get_latest_stimulus()
@@ -297,6 +357,9 @@ def main():
                 intervention_intent = rio_response.get("intervention_intent", "validation")
                 emotion_before = stimulus_dict.get("emotions", {})
 
+                if not rio_response.get("rio_state"):
+                    rio_response["rio_state"] = _fallback_rio_state(stimulus_dict)
+
                 # Step 3d: Get memory context
                 memory_context = get_summary() or ""
 
@@ -325,8 +388,6 @@ def main():
                         speed=tts_params.get("speed", 0.95),
                     )
 
-                    # Stop servo alive animation after speech finishes
-                    stop_alive_animation()
 
                     # Step 3f-audio: Play audio in browser
                     response_audio_file = project_root / "rio_js" / "public" / "audio" / Path(audio_url).name if audio_url else project_root / "rio_js" / "public" / "audio" / "response.mp3"

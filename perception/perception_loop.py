@@ -54,6 +54,7 @@ logger = logging.getLogger("PerceptionLoop")
 _latest_stimulus = None
 _latest_perception_debug: dict = {}
 
+
 def get_latest_stimulus():
     """Return the most recent fused StimulusObject, or None if not ready."""
     global _latest_stimulus
@@ -143,6 +144,7 @@ class PerceptionLoop:
         self._last_voice_ts = 0.0
         self._last_fused_log_ts = 0.0
         self._last_frame_ts = 0.0
+        self._last_frame_source = "none"
 
         # Real-time emotion tracking (for dynamic updates)
         self._last_raw_fused = None
@@ -276,9 +278,14 @@ class PerceptionLoop:
             frame = None
             if self._face_detector:
                 frame = self._face_detector.get_frame()
-                self._shared_frame = frame
-                if frame is not None:
-                    self._last_frame_ts = time.time()
+            if frame is None and self._posture_detector:
+                # Fallback to posture detector camera if face detector is unavailable
+                frame = self._posture_detector.get_frame()
+            if frame is not None:
+                self._last_frame_ts = time.time()
+                self._last_frame_source = "local"
+
+            self._shared_frame = frame
 
             # ── 2. Face detection ────────────────────────────────────────
             if self._face_detector and frame is not None:
@@ -349,9 +356,9 @@ class PerceptionLoop:
 
              # ── 7. Write results (thread-safe) ───────────────────────────
             with self._lock:
-                 self._latest_frame = frame.copy() if frame is not None else None
-                 if transcript:
-                     self._latest_transcript = transcript
+                self._latest_frame = frame.copy() if frame is not None else None
+                if transcript:
+                    self._latest_transcript = transcript
 
                 if should_commit_emotion:
                     self._latest_fused = fused
@@ -486,6 +493,7 @@ class PerceptionLoop:
             "age_seconds": round(now - self._last_frame_ts, 2) if self._last_frame_ts else None,
             "stale": bool(self._last_frame_ts and (now - self._last_frame_ts) > staleness),
             "enabled": self.enable_face or self.enable_posture,
+            "source": self._last_frame_source,
         }
 
     def get_voice_status(self) -> dict:

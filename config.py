@@ -26,16 +26,16 @@ GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL: str = "gemini-2.5-flash"
 
 # Ollama (FREE - Local, No API, Always Works!)
-OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://0.0.0.0:11434")
 OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "mistral:7b")  # ~4.1GB, bilingual Hindi/English
 OLLAMA_TIMEOUT: float = 10.0  # Ollama needs a bit more time
 OLLAMA_STREAM: bool = False
 
 RIO_PORT: int = int(os.getenv("RIO_PORT", "5000"))
-RIO_BASE_URL: str = f"http://localhost:{RIO_PORT}"
+RIO_BASE_URL: str = f"http://0.0.0.0:{RIO_PORT}"
 
 # Rio Bridge (JS engine) — used by rio_client.py
-RIO_BRIDGE_URL: str = RIO_BASE_URL          # http://localhost:{RIO_PORT}
+RIO_BRIDGE_URL: str = RIO_BASE_URL          # http://0.0.0.0:{RIO_PORT}
 RIO_BRIDGE_TIMEOUT: float = 5.0
 RIO_BRIDGE_RETRIES: int = 3
 DIALOGUE_TIMEOUT_S: float = 12.0
@@ -56,17 +56,25 @@ PERCEPTION_LOOP_INTERVAL: float = 1.0 / PERCEPTION_FPS
 DETECTOR_CONFIDENCE_THRESHOLD: float = 0.4
 
 # Only update the emotion stimulus seen by the LLM/engine every N perception frames.
-# This reduces frame-to-frame noise (e.g. flickering sadness).
-EMOTION_INPUT_FRAME_INTERVAL: int = int(os.getenv("EMOTION_INPUT_FRAME_INTERVAL", "30"))
+# Lowered 30 → 12 (at 8fps = ~1.5s refresh). The old value meant ~3.75s between
+# LLM updates, which compounded with the 5s face sample interval to create very
+# sticky emotion readings. 12 frames = ~1.5s which is responsive without being noisy.
+EMOTION_INPUT_FRAME_INTERVAL: int = int(os.getenv("EMOTION_INPUT_FRAME_INTERVAL", "12"))
 
-# Face detector sampling (seconds between fresh face emotion reads)
-FACE_SAMPLE_INTERVAL_S: float = float(os.getenv("FACE_SAMPLE_INTERVAL_S", "5"))
+# Face detector sampling (seconds between fresh face emotion reads).
+# Lowered 5s → 1.5s so a changed expression updates the fused vector
+# within a couple of seconds instead of being stale for up to 5s.
+FACE_SAMPLE_INTERVAL_S: float = float(os.getenv("FACE_SAMPLE_INTERVAL_S", "1.5"))
 
 # Fusion smoothing: lower alpha = smoother, slower-moving fused vector (see EmotionFusionEngine.fuse_smoothed)
-FUSION_SMOOTH_ALPHA: float = float(os.getenv("FUSION_SMOOTH_ALPHA", "0.28"))
+# Raised 0.28 → 0.55 so the fused vector responds to real expression changes within ~1-2s.
+# At 0.28 the vector was so sluggish that any emotion (especially sadness) became sticky.
+# If the output feels too jumpy, lower toward 0.40; don't go below 0.35.
+FUSION_SMOOTH_ALPHA: float = float(os.getenv("FUSION_SMOOTH_ALPHA", "0.55"))
 
 # Min seconds between emotion WebSocket pushes from main.py (details dashboard)
 EMOTION_WS_BROADCAST_MIN_S: float = float(os.getenv("EMOTION_WS_BROADCAST_MIN_S", "0.15"))
+CLEAR_MEMORY_ON_START: bool = os.getenv("CLEAR_MEMORY_ON_START", "true").lower() == "true"
 WEBCAM_INDEX: int = 0
 MIC_INDEX: int = int(os.getenv("MIC_INDEX", "0"))  # Auto-detect default microphone. Set MIC_INDEX=1 if you have multiple mics
 ENABLE_VOICE_DETECTOR: bool = os.getenv("ENABLE_VOICE_DETECTOR", "true").lower() == "true"
